@@ -1,0 +1,5 @@
+- [ ] Add GET /api/chat endpoint in ChatController to retrieve chat history
+- [ ] Update OllamaService to include system prompt for better AI responses
+- [ ] Modify ChatPage.jsx to load and display chat history on mount
+- [ ] Restart backend after changes
+- [ ] Test frontend-backend integration

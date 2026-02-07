@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom shadow for Neubrutalist style */
+.shadow-neubrutalist {
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,1);
+}
+
+/* Global reset */
+hhtml,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* App wrapper */
+
+
