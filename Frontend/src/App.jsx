@@ -6,23 +6,38 @@ import Login from "./pages/Login";
 import "./App.css";
 
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  // Initialize from LocalStorage
+  let savedUser = null;
+  try {
+    const stored = localStorage.getItem("user");
+    if (stored) {
+      savedUser = JSON.parse(stored);
+    }
+  } catch (e) {
+    console.error("Failed to parse user from local storage", e);
+    localStorage.removeItem("user");
+  }
+
+  const [isLoggedIn, setIsLoggedIn] = useState(!!savedUser);
+  const [username, setUsername] = useState(savedUser?.username || "");
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [username, setUsername] = useState("");
   const [darkMode, setDarkMode] = useState(true);
+  const [selectedModel, setSelectedModel] = useState("qwen3:1.7b");
 
   // 🔐 IF NOT LOGGED IN → SHOW LOGIN PAGE
   if (!isLoggedIn) {
-  return (
-    <Login
-      onLogin={(user) => {
-        setUsername(user.username);
-        setIsLoggedIn(true);
-      }}
-    />
-  );
-}
+    return (
+      <Login
+        onLogin={(user) => {
+          localStorage.setItem("user", JSON.stringify(user)); // Save to LS
+          setUsername(user.username);
+          setIsLoggedIn(true);
+        }}
+      />
+    );
+  }
 
 
 
@@ -45,11 +60,13 @@ function App() {
           <Sidebar
             username={username}
             onSettingsClick={() => setIsSettingsOpen(true)}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
           />
         )}
 
         <div className="main-content">
-          <ChatPage />
+          <ChatPage selectedModel={selectedModel} />
         </div>
       </div>
 

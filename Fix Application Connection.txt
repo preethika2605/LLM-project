@@ -1,0 +1,41 @@
+Fix Application Connection
+
+Fix the application startup and connection issues by addressing configuration conflicts and package mismatches
+
+Backend (Fix Structure & Logic)
+The backend has structural issues (wrong packages) and configuration conflicts.
+
+[MODIFY] 
+
+OllamaService.java
+Issue: Package declaration com.localai.backend.service does not match folder structure com.localai.service.
+Fix: Change package to package com.localai.service;.
+[DELETE] 
+CorsConfig.java
+Issue:
+Redundant CORS configuration conflicting with 
+BackendApplication.java
+.
+Wrong package declaration (com.localai.backend.config).
+Incorrectly restricts origin to localhost:3000 (Frontend is on 5173).
+Fix: Delete this file.
+
+Connection (Finalize & Run)
+Ensure the connection between Frontend and Backend is established via correct CORS settings in the main application class.
+
+[MODIFY] 
+BackendApplication.java
+Action: Ensure allowedOrigins includes http://localhost:5173.
+Status: Currently has http://localhost:5173 and http://localhost:3000. This is correct and will work once 
+CorsConfig.java
+ is removed.
+Verification Plan
+Automated Tests
+Backend Startup: Run mvn spring-boot:run and ensure it starts without error.
+Frontend Startup: Run npm run dev and ensure it starts on port 5173.
+Manual Verification
+Open App: Navigate to http://localhost:5173.
+Test Chat: Send a message "Hello".
+Verify Response:
+Success: Bot responds (requires Ollama running).
+Connection Success: Even if Ollama is off, network tab should show 200 OK or 500 Error (from backend), NOT CORS Error.

@@ -1,7 +1,7 @@
-package com.localai.backend.repository;
+package com.localai.repository;
 
 import org.springframework.data.mongodb.repository.MongoRepository;
-import com.localai.backend.model.User;
+import com.localai.model.User;
 
 public interface UserRepository extends MongoRepository<User, String> {
     User findByUsername(String username);

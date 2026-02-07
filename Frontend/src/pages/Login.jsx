@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { loginUser, registerUser } from "../services/api";
 import "./Login.css";
 
 export default function Login({ onLogin }) {
@@ -7,19 +8,23 @@ export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (isSignup && !username) return;
-    if (!email || !password) return;
+    if (!username || !password) return;
+    if (isSignup && !email) return;
 
-    // For now: frontend-only auth
-    const userData = {
-      username: username || email.split("@")[0],
-      email
-    };
-
-    onLogin(userData);
+    try {
+      let user;
+      if (isSignup) {
+        user = await registerUser({ username, email, password });
+      } else {
+        user = await loginUser({ username, password });
+      }
+      onLogin(user);
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
   return (
@@ -32,27 +37,24 @@ export default function Login({ onLogin }) {
             : "Sign in to your AI workspace"}
         </p>
 
-        {/* Username (Sign up only) */}
+        <input
+          type="text"
+          placeholder="Username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+        />
+
         {isSignup && (
           <input
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             required
           />
         )}
 
-        {/* Email */}
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-
-        {/* Password */}
         <input
           type="password"
           placeholder="Password"
@@ -65,7 +67,6 @@ export default function Login({ onLogin }) {
           {isSignup ? "Create Account" : "Login"}
         </button>
 
-        {/* Toggle */}
         <p className="login-toggle">
           {isSignup ? (
             <>

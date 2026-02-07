@@ -1,0 +1,29 @@
+LLM-project Setup Walkthrough
+This document outlines the steps taken to set up and run the LLM-project locally.
+
+Prerequisites
+Java 17 (for Backend)
+Maven (for Backend dependencies)
+Node.js (for Frontend)
+MongoDB (running on localhost:27017)
+Ollama (running on localhost:11434)
+
+Features Implement
+Authentication
+Register: Create a new account with Username, Email, and Password.
+Login: Sign in with Username and Password.
+Data Storage: Users are stored in the local MongoDB database.
+Chat & AI Models
+Model Selection: Choose your preferred AI model from the sidebar.
+Available Models: qwen3:1.7b, deepcoder:1.5b, mistral, llama3.
+Note: Ensure the selected model is pulled in Ollama (e.g., ollama pull qwen3:1.7b).
+History: Chat history is saved to MongoDB and retrieved on load.
+Integration: Connects to local Ollama instance for AI responses.
+Fixes Applied
+Package Structure: Corrected package declarations in Backend files.
+CORS Configuration: Consolidated to 
+BackendApplication.java
+.
+Port Conflicts: Resolved ports 8080 and 5173.
+Frontend Logic: Wired up Authentication and Model Selection.
+Model Mismatch: Updated frontend to request qwen3:1.7b instead of generic qwen to match installed models.

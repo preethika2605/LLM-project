@@ -1,9 +1,8 @@
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\BackendApplication.java
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\model\User.java
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\config\CorsConfig.java
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\controller\AuthController.java
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\repository\ChatHistoryRepository.java
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\repository\UserRepository.java
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\controller\ChatController.java
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\service\OllamaService.java
-C:\Users\admin\Desktop\projectllm\Backend\src\main\java\com\localai\model\ChatHistory.java
+E:\Projects ongoing\llm\Backend\src\main\java\com\localai\service\OllamaService.java
+E:\Projects ongoing\llm\Backend\src\main\java\com\localai\repository\ChatHistoryRepository.java
+E:\Projects ongoing\llm\Backend\src\main\java\com\localai\controller\ChatController.java
+E:\Projects ongoing\llm\Backend\src\main\java\com\localai\BackendApplication.java
+E:\Projects ongoing\llm\Backend\src\main\java\com\localai\model\ChatHistory.java
+E:\Projects ongoing\llm\Backend\src\main\java\com\localai\repository\UserRepository.java
+E:\Projects ongoing\llm\Backend\src\main\java\com\localai\model\User.java
+E:\Projects ongoing\llm\Backend\src\main\java\com\localai\controller\AuthController.java

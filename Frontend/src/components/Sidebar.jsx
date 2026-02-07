@@ -1,17 +1,15 @@
 import { useState } from 'react'
 
-const Sidebar = ({ username, onSettingsClick }) => {
+const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange }) => {
   const [history, setHistory] = useState([
     { id: 1, name: 'Project Discussion', active: false },
     { id: 2, name: 'Code Review', active: false },
     { id: 3, name: 'New Chat', active: true }
   ])
 
-  const [selectedModel, setSelectedModel] = useState('deepseek-custom')
-
   const aiModels = [
-    { value: 'deepseek-custom', label: 'DeepSeek Custom' },
-    { value: 'qwen', label: 'Qwen' },
+    { value: 'qwen3:1.7b', label: 'Qwen 3 (1.7B)' },
+    { value: 'deepcoder:1.5b', label: 'DeepCoder (1.5B)' },
     { value: 'mistral', label: 'Mistral' },
     { value: 'llama3', label: 'Llama 3' }
   ]
@@ -22,8 +20,8 @@ const Sidebar = ({ username, onSettingsClick }) => {
       name: `Chat ${history.length + 1}`,
       active: true
     }
-    
-    setHistory(prev => 
+
+    setHistory(prev =>
       prev.map(item => ({ ...item, active: false }))
         .concat([newChat])
     )
@@ -47,9 +45,9 @@ const Sidebar = ({ username, onSettingsClick }) => {
         {/* AI Model Selector */}
         <div className="model-selector">
           <label className="model-label">Select Model</label>
-          <select 
-            value={selectedModel} 
-            onChange={(e) => setSelectedModel(e.target.value)}
+          <select
+            value={selectedModel}
+            onChange={(e) => onModelChange(e.target.value)}
             className="model-dropdown"
           >
             {aiModels.map(model => (
@@ -65,7 +63,7 @@ const Sidebar = ({ username, onSettingsClick }) => {
         <div className="section-title">HISTORY</div>
         <div className="history-list">
           {history.map(item => (
-            <div 
+            <div
               key={item.id}
               className={`history-item ${item.active ? 'active' : ''}`}
               onClick={() => selectHistory(item.id)}
@@ -87,7 +85,7 @@ const Sidebar = ({ username, onSettingsClick }) => {
             <div className="user-name">{username}</div>
           </div>
         </div>
-        <button 
+        <button
           className="settings-btn"
           onClick={onSettingsClick}
           title="Settings"

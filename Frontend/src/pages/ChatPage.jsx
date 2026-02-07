@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import MessageInput from "../components/MessageInput";
-import { sendMessageToBackend } from "../services/api";
+import { sendMessageToBackend, getChatHistory } from "../services/api";
 
-const ChatPage = () => {
+const ChatPage = ({ selectedModel }) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
@@ -10,15 +12,12 @@ const ChatPage = () => {
   useEffect(() => {
     const loadChatHistory = async () => {
       try {
-        const response = await fetch("http://localhost:8080/api/chat");
-        if (response.ok) {
-          const history = await response.json();
-          const formattedHistory = history.flatMap(chat => [
-            { sender: "user", text: chat.userMessage },
-            { sender: "bot", text: chat.aiResponse }
-          ]);
-          setMessages(formattedHistory);
-        }
+        const history = await getChatHistory();
+        const formattedHistory = history.flatMap(chat => [
+          { sender: "user", text: chat.userMessage },
+          { sender: "bot", text: chat.aiResponse }
+        ]);
+        setMessages(formattedHistory);
       } catch (err) {
         console.error("Failed to load chat history:", err);
       }
@@ -37,7 +36,7 @@ const ChatPage = () => {
 
     if (msg.sender === "user") {
       try {
-        const data = await sendMessageToBackend(msg.text);
+        const data = await sendMessageToBackend(msg.text, selectedModel);
         setMessages((prev) => [
           ...prev,
           { sender: "bot", text: data.response },
@@ -45,7 +44,7 @@ const ChatPage = () => {
       } catch (err) {
         setMessages((prev) => [
           ...prev,
-          { sender: "bot", text: "Error: Could not get response" },
+          { sender: "bot", text: `Error: ${err.message}` },
         ]);
         console.error(err);
       }
@@ -61,9 +60,20 @@ const ChatPage = () => {
             key={index}
             className={`message ${msg.sender === "user" ? "user" : "bot"}`}
           >
-            <div className="message-content">{msg.text}</div>
+            <div className="message-content">
+              {msg.sender === "bot" ? (
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {msg.text}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                msg.text
+              )}
+            </div>
           </div>
         ))}
+        <div ref={messagesEndRef} />
       </div>
       <MessageInput onSendMessage={handleSendMessage} isLoading={isLoading} />
     </div>
