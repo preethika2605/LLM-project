@@ -1,0 +1,11 @@
+com\localai\backend\controller\AuthController.class
+com\localai\backend\repository\UserRepository.class
+com\localai\controller\ChatController.class
+com\localai\model\ChatHistory.class
+com\localai\backend\service\OllamaService.class
+com\localai\repository\ChatHistoryRepository.class
+com\localai\BackendApplication$1.class
+com\localai\BackendApplication.class
+com\localai\backend\model\User.class
+com\localai\backend\config\CorsConfig.class
+com\localai\backend\config\CorsConfig$1.class
