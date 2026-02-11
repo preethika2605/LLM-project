@@ -3,5 +3,8 @@ com\localai\controller\ChatController.class
 com\localai\model\ChatHistory.class
 com\localai\repository\UserRepository.class
 com\localai\repository\ChatHistoryRepository.class
+com\localai\BackendApplication$1.class
 com\localai\service\OllamaService.class
+com\localai\BackendApplication.class
 com\localai\model\User.class
+com\localai\BackendApplication$InnerController.class

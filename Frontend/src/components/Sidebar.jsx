@@ -1,17 +1,12 @@
 import { useState } from 'react'
 
-const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange }) => {
-  const [history, setHistory] = useState([
-    { id: 1, name: 'Project Discussion', active: false },
-    { id: 2, name: 'Code Review', active: false },
-    { id: 3, name: 'New Chat', active: true }
-  ])
+const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange, onSelectHistory, onLogout, chatHistories = [], onDeleteHistory }) => {
+  // Remove default history
+  const [history, setHistory] = useState([])
 
   const aiModels = [
-    { value: 'qwen3:1.7b', label: 'Qwen 3 (1.7B)' },
-    { value: 'deepcoder:1.5b', label: 'DeepCoder (1.5B)' },
-    { value: 'mistral', label: 'Mistral' },
-    { value: 'llama3', label: 'Llama 3' }
+    { value: 'qwen2.5:1.5b', label: 'Qwen 2.5 (1.5B)' },
+    { value: 'deepseek-coder:latest', label: 'DeepSeek Coder (latest)' }
   ]
 
   const handleNewChat = () => {
@@ -25,6 +20,9 @@ const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange }) =>
       prev.map(item => ({ ...item, active: false }))
         .concat([newChat])
     )
+
+    // signal parent to start a fresh/new chat (use null to indicate new)
+    if (onSelectHistory) onSelectHistory(null)
   }
 
   const selectHistory = (id) => {
@@ -32,13 +30,14 @@ const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange }) =>
       ...item,
       active: item.id === id
     })))
+    if (onSelectHistory) onSelectHistory(id)
   }
 
   return (
     <div className="sidebar">
       <div className="sidebar-section">
         <div className="section-title">Local LLM</div>
-        <button className="new-chat-btn" onClick={handleNewChat}>
+        <button className="new-chat-btn" onClick={() => onSelectHistory && onSelectHistory(null)}>
           <span className="plus-icon">+</span> NEW CHAT
         </button>
 
@@ -62,14 +61,21 @@ const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange }) =>
       <div className="sidebar-section">
         <div className="section-title">HISTORY</div>
         <div className="history-list">
-          {history.map(item => (
+          {chatHistories.map(item => (
             <div
               key={item.id}
               className={`history-item ${item.active ? 'active' : ''}`}
-              onClick={() => selectHistory(item.id)}
             >
-              <span className="history-icon">💬</span>
-              <span className="history-name">{item.name}</span>
+              <span className="history-icon" onClick={() => onSelectHistory(item.id)}>💬</span>
+              <span className="history-name" onClick={() => onSelectHistory(item.id)}>{item.keyword || item.name || 'Chat'}</span>
+              <button
+                className="delete-history-btn"
+                title="Delete chat"
+                onClick={e => { e.stopPropagation(); onDeleteHistory && onDeleteHistory(item.id); }}
+                style={{ marginLeft: 8, color: 'red', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                🗑️
+              </button>
             </div>
           ))}
         </div>
@@ -79,19 +85,29 @@ const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange }) =>
       <div className="user-profile">
         <div className="user-info">
           <div className="user-avatar">
-            {username.charAt(0).toUpperCase()}
+            {(username || 'U').charAt(0).toUpperCase()
+          }
           </div>
           <div className="user-details">
-            <div className="user-name">{username}</div>
+            <div className="user-name">{username || 'User'}</div>
           </div>
         </div>
-        <button
-          className="settings-btn"
-          onClick={onSettingsClick}
-          title="Settings"
-        >
-          ⚙️
-        </button>
+        <div className="profile-actions">
+          <button
+            className="settings-btn"
+            onClick={onSettingsClick}
+            title="Settings"
+          >
+            ⚙️
+          </button>
+          <button
+            className="logout-btn"
+            onClick={() => onLogout && onLogout()}
+            title="Logout"
+          >
+            �
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -10,6 +10,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/chat")
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"}, allowCredentials = "true")
 public class ChatController {
 
     private final OllamaService ollamaService;
@@ -27,6 +28,17 @@ public class ChatController {
         return "ChatController is working!";
     }
 
+    @GetMapping("/models")
+    public Map<String, Object> getAvailableModels() {
+        List<String> models = ollamaService.getAvailableModels();
+        return Map.of("models", models);
+    }
+
+    @GetMapping("/models/{modelName}")
+    public Map<String, Object> getModelInfo(@PathVariable String modelName) {
+        return ollamaService.getModelInfo(modelName);
+    }
+
     @PostMapping
     public Map<String, String> chat(@RequestBody Map<String, String> request) {
 
@@ -34,7 +46,7 @@ public class ChatController {
         String model = request.get("model");
 
         if (model == null || model.isEmpty()) {
-            model = "qwen"; // Default fallback
+            model = "qwen2.5:1.5b"; // Default fallback
         }
 
         String aiResponse = ollamaService.chat(model, userMessage);

@@ -2,29 +2,35 @@ import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import MessageInput from "../components/MessageInput";
-import { sendMessageToBackend, getChatHistory } from "../services/api";
+import { sendMessageToBackend } from "../services/api";
 
-const ChatPage = ({ selectedModel }) => {
+const ChatPage = ({ selectedModel, currentChatId, chatHistories = [] }) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [keyword, setKeyword] = useState("");
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    const loadChatHistory = async () => {
-      try {
-        const history = await getChatHistory();
-        const formattedHistory = history.flatMap(chat => [
-          { sender: "user", text: chat.userMessage },
-          { sender: "bot", text: chat.aiResponse }
-        ]);
-        setMessages(formattedHistory);
-      } catch (err) {
-        console.error("Failed to load chat history:", err);
-      }
-    };
-
-    loadChatHistory();
-  }, []);
+    if (currentChatId === null || !currentChatId) {
+      setMessages([]);
+      setKeyword("");
+      return;
+    }
+    
+    // Find the chat in chatHistories
+    const selectedChat = chatHistories.find(chat => chat.id === currentChatId);
+    if (selectedChat && selectedChat.messages) {
+      // Convert all messages from the chat to display format
+      const displayMessages = selectedChat.messages.flatMap(item => [
+        { sender: "user", text: item.userMessage, timestamp: item.timestamp },
+        { sender: "bot", text: item.aiResponse, timestamp: item.timestamp }
+      ]);
+      setMessages(displayMessages);
+      setKeyword(selectedChat.keyword || "");
+    } else {
+      setMessages([]);
+    }
+  }, [currentChatId, chatHistories]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -32,22 +38,19 @@ const ChatPage = ({ selectedModel }) => {
 
   const handleSendMessage = async (msg) => {
     setIsLoading(true);
-    setMessages((prev) => [...prev, msg]);
-
-    if (msg.sender === "user") {
-      try {
-        const data = await sendMessageToBackend(msg.text, selectedModel);
-        setMessages((prev) => [
-          ...prev,
-          { sender: "bot", text: data.response },
-        ]);
-      } catch (err) {
-        setMessages((prev) => [
-          ...prev,
-          { sender: "bot", text: `Error: ${err.message}` },
-        ]);
-        console.error(err);
-      }
+    setMessages([{ ...msg, timestamp: new Date().toISOString() }, { sender: "bot", text: "Thinking...", timestamp: new Date().toISOString() }]);
+    setKeyword(msg.text.slice(0, 30));
+    try {
+      const data = await sendMessageToBackend(msg.text, selectedModel);
+      setMessages([
+        { sender: "user", text: msg.text, timestamp: new Date().toISOString() },
+        { sender: "bot", text: data.response, timestamp: new Date().toISOString() }
+      ]);
+    } catch (err) {
+      setMessages([
+        { sender: "user", text: msg.text, timestamp: new Date().toISOString() },
+        { sender: "bot", text: `Error: ${err.message}`, timestamp: new Date().toISOString() }
+      ]);
     }
     setIsLoading(false);
   };
@@ -70,6 +73,9 @@ const ChatPage = ({ selectedModel }) => {
               ) : (
                 msg.text
               )}
+              <div className="message-time">
+                {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+              </div>
             </div>
           </div>
         ))}

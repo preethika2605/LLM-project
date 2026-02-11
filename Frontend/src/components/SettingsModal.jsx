@@ -1,23 +1,54 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { getAvailableModels } from '../services/api'
 
 const SettingsModal = ({ 
   onClose, 
   username: initialUsername, 
   onUsernameChange,
   darkMode: initialDarkMode,
-  onDarkModeChange
+  onDarkModeChange,
+  onModelChange
 }) => {
   const [username, setUsername] = useState(initialUsername)
   const [darkMode, setDarkMode] = useState(initialDarkMode)
-  const [model, setModel] = useState('gpt-4')
+  const [model, setModel] = useState('qwen2.5:1.5b')
+  const [availableModels, setAvailableModels] = useState([])
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(1000)
-  const [typingSpeed, setTypingSpeed] = useState('medium') // New setting
+  const [typingSpeed, setTypingSpeed] = useState('medium')
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const data = await getAvailableModels()
+        setAvailableModels(data.models || [])
+        // Set initial model from localStorage if available
+        const savedSettings = localStorage.getItem('ai-chat-settings')
+        if (savedSettings) {
+          const settings = JSON.parse(savedSettings)
+          if (settings.model) {
+            setModel(settings.model)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch models:', err)
+        setAvailableModels([
+          'granite3.2:2b',
+          'llama3.2:1b',
+          'deepseek-coder:latest',
+          'qwen2.5:1.5b'
+        ])
+      }
+    }
+    fetchModels()
+  }, [])
 
   const handleSave = () => {
     onUsernameChange(username)
     onDarkModeChange(darkMode)
-    // In a real app, you would save these settings to local storage or backend
+    if (onModelChange) {
+      onModelChange(model)
+    }
     const settings = { username, darkMode, model, temperature, maxTokens, typingSpeed }
     console.log('Settings saved:', settings)
     localStorage.setItem('ai-chat-settings', JSON.stringify(settings))
@@ -60,7 +91,24 @@ const SettingsModal = ({
             </label>
           </div>
 
-          
+          <div className="setting-group">
+            <label>AI Model</label>
+            <select 
+              value={model} 
+              onChange={(e) => setModel(e.target.value)}
+              className="setting-select"
+            >
+              {availableModels.length > 0 ? (
+                availableModels.map((modelName) => (
+                  <option key={modelName} value={modelName}>
+                    {modelName}
+                  </option>
+                ))
+              ) : (
+                <option value="qwen2.5:1.5b">Qwen 2.5 (Loading...)</option>
+              )}
+            </select>
+          </div>
 
           <div className="setting-group">
             <label>Response Speed</label>
