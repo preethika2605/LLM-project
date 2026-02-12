@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import MessageInput from "../components/MessageInput";
 import { sendMessageToBackend } from "../services/api";
 
-const ChatPage = ({ selectedModel, currentChatId, chatHistories = [] }) => {
+const ChatPage = ({ selectedModel, currentChatId, chatHistories = [], onChatIdUpdate, onMessageSent }) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
@@ -16,7 +16,7 @@ const ChatPage = ({ selectedModel, currentChatId, chatHistories = [] }) => {
       setKeyword("");
       return;
     }
-    
+
     // Find the chat in chatHistories
     const selectedChat = chatHistories.find(chat => chat.id === currentChatId);
     if (selectedChat && selectedChat.messages) {
@@ -24,9 +24,9 @@ const ChatPage = ({ selectedModel, currentChatId, chatHistories = [] }) => {
       const displayMessages = selectedChat.messages.flatMap(item => [
         { sender: "user", text: item.userMessage, timestamp: item.timestamp },
         { sender: "bot", text: item.aiResponse, timestamp: item.timestamp }
-      ]);
+      ]).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
       setMessages(displayMessages);
-      setKeyword(selectedChat.keyword || "");
+      setKeyword(selectedChat.keyword || selectedChat.title || "");
     } else {
       setMessages([]);
     }
@@ -38,19 +38,42 @@ const ChatPage = ({ selectedModel, currentChatId, chatHistories = [] }) => {
 
   const handleSendMessage = async (msg) => {
     setIsLoading(true);
-    setMessages([{ ...msg, timestamp: new Date().toISOString() }, { sender: "bot", text: "Thinking...", timestamp: new Date().toISOString() }]);
-    setKeyword(msg.text.slice(0, 30));
+    const userMessage = { ...msg, timestamp: new Date().toISOString() };
+    const thinkingMessage = { sender: "bot", text: "Thinking...", timestamp: new Date().toISOString() };
+    setMessages(prev => [...prev, userMessage, thinkingMessage]);
     try {
-      const data = await sendMessageToBackend(msg.text, selectedModel);
-      setMessages([
-        { sender: "user", text: msg.text, timestamp: new Date().toISOString() },
-        { sender: "bot", text: data.response, timestamp: new Date().toISOString() }
-      ]);
+      // For new chats, use the message as keyword
+      let messageKeyword = keyword;
+      if (!currentChatId || currentChatId.startsWith('temp-')) {
+        messageKeyword = msg.text;
+        setKeyword(msg.text);
+      }
+      const backendConversationId =
+        currentChatId && !currentChatId.startsWith('temp-') ? currentChatId : null;
+
+      const data = await sendMessageToBackend(
+        msg.text,
+        selectedModel,
+        backendConversationId,
+        messageKeyword
+      );
+
+      const resolvedConversationId =
+        data.conversationId ||
+        backendConversationId ||
+        currentChatId ||
+        `temp-${Date.now()}`;
+
+      setMessages(prev => prev.slice(0, -1).concat({ sender: "bot", text: data.response, timestamp: new Date().toISOString() }));
+
+      if (resolvedConversationId !== currentChatId) {
+        onChatIdUpdate(resolvedConversationId);
+      }
+
+      // Update parent chat histories
+      onMessageSent(resolvedConversationId, msg.text, data.response, new Date().toISOString());
     } catch (err) {
-      setMessages([
-        { sender: "user", text: msg.text, timestamp: new Date().toISOString() },
-        { sender: "bot", text: `Error: ${err.message}`, timestamp: new Date().toISOString() }
-      ]);
+      setMessages(prev => prev.slice(0, -1).concat({ sender: "bot", text: `Error: ${err.message}`, timestamp: new Date().toISOString() }));
     }
     setIsLoading(false);
   };
@@ -74,7 +97,7 @@ const ChatPage = ({ selectedModel, currentChatId, chatHistories = [] }) => {
                 msg.text
               )}
               <div className="message-time">
-                {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                {msg.timestamp ? new Date(msg.timestamp).toLocaleString() : ''}
               </div>
             </div>
           </div>

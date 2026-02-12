@@ -1,13 +1,33 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { getAvailableModels } from '../services/api'
 
 const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange, onSelectHistory, onLogout, chatHistories = [], onDeleteHistory }) => {
   // Remove default history
   const [history, setHistory] = useState([])
+  const [aiModels, setAiModels] = useState([])
 
-  const aiModels = [
-    { value: 'qwen2.5:1.5b', label: 'Qwen 2.5 (1.5B)' },
-    { value: 'deepseek-coder:latest', label: 'DeepSeek Coder (latest)' }
-  ]
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const data = await getAvailableModels()
+        const models = data.models.map(model => ({
+          value: model,
+          label: model
+        }))
+        setAiModels(models)
+      } catch (err) {
+        console.error('Failed to load models:', err)
+        // Fallback to default models
+        setAiModels([
+          { value: 'qwen2.5:1.5b', label: 'Qwen 2.5 (1.5B)' },
+          { value: 'deepseek-coder:latest', label: 'DeepSeek Coder (latest)' },
+          { value: 'granite3.2:2b', label: 'Granite 3.2 (2B)' },
+          { value: 'llama3.2:1b', label: 'Llama 3.2 (1B)' }
+        ])
+      }
+    }
+    loadModels()
+  }, [])
 
   const handleNewChat = () => {
     const newChat = {
@@ -67,7 +87,7 @@ const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange, onSe
               className={`history-item ${item.active ? 'active' : ''}`}
             >
               <span className="history-icon" onClick={() => onSelectHistory(item.id)}>💬</span>
-              <span className="history-name" onClick={() => onSelectHistory(item.id)}>{item.keyword || item.name || 'Chat'}</span>
+              <span className="history-name" onClick={() => onSelectHistory(item.id)}>{item.title || item.keyword || item.name || 'Chat'}</span>
               <button
                 className="delete-history-btn"
                 title="Delete chat"
@@ -105,7 +125,11 @@ const Sidebar = ({ username, onSettingsClick, selectedModel, onModelChange, onSe
             onClick={() => onLogout && onLogout()}
             title="Logout"
           >
-            �
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <polyline points="16,17 21,12 16,7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </button>
         </div>
       </div>

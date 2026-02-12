@@ -38,7 +38,9 @@ public class OllamaService {
 
         try {
             Map response = restTemplate.postForObject(OLLAMA_URL, body, Map.class);
-            return response.get("response").toString();
+            String aiResponse = response.get("response").toString();
+            System.out.println("AI Response: " + aiResponse);
+            return aiResponse;
         } catch (Exception e) {
             e.printStackTrace();
             return "Error communicating with Ollama: " + e.getMessage();
@@ -46,7 +48,15 @@ public class OllamaService {
     }
 
     public List<String> getAvailableModels() {
-        return AVAILABLE_MODELS;
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            Map response = restTemplate.getForObject(OLLAMA_TAGS_URL, Map.class);
+            List<Map<String, Object>> models = (List<Map<String, Object>>) response.get("models");
+            return models.stream().map(model -> (String) model.get("name")).toList();
+        } catch (Exception e) {
+            System.out.println("Failed to fetch models from Ollama, using default list: " + e.getMessage());
+            return AVAILABLE_MODELS;
+        }
     }
 
     public Map<String, Object> getModelInfo(String model) {

@@ -100,9 +100,16 @@ export async function getChatHistory() {
   }
 }
 
-export async function sendMessageToBackend(message, model) {
+export async function sendMessageToBackend(message, model, conversationId = null, keyword = null) {
   try {
-    const res = await fetch(`${BASE_URL}/api/chat`, fetchOptions('POST', { message, model }));
+    const body = { message, model };
+    if (conversationId) {
+      body.conversationId = conversationId;
+    }
+    if (keyword) {
+      body.keyword = keyword;
+    }
+    const res = await fetch(`${BASE_URL}/api/chat`, fetchOptions('POST', body));
 
     if (!res.ok) {
       const text = await res.text();
@@ -110,7 +117,7 @@ export async function sendMessageToBackend(message, model) {
       throw new Error(`Backend error: ${text}`);
     }
 
-    const data = await res.json(); // { response: "bot reply" }
+    const data = await res.json(); // { response: "bot reply", conversationId: "..." }
     return data;
   } catch (err) {
     console.error('API Error:', err);

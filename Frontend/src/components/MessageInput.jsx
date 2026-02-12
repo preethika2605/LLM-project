@@ -29,22 +29,8 @@ const MessageInput = ({ onSendMessage, isLoading }) => {
         disabled={isLoading}
       />
       <div className="input-actions">
-        <button 
-          className="action-btn" 
-          title="Attach file"
-          disabled={isLoading}
-        >
-          📎
-        </button>
-        <button 
-          className="action-btn" 
-          title="Web search"
-          disabled={isLoading}
-        >
-          🔍
-        </button>
-        <button 
-          className="action-btn primary" 
+        <button
+          className="action-btn primary"
           onClick={handleSend}
           disabled={isLoading || !message.trim()}
         >
