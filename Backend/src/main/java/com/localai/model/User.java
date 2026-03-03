@@ -12,6 +12,33 @@ public class User {
     private String email;
     private String password;
 
+    // Default constructor (required for MongoDB/Spring Data)
+    public User() {
+    }
+
+    // Constructor for login (username + password)
+    public User(String username, String password) {
+        this.username = username;
+        this.password = password;
+    }
+
+    // Constructor for registration (username + email + password)
+    public User(String username, String email, String password) {
+        this.username = username;
+        this.email = email;
+        this.password = password;
+    }
+
+    @Override
+    public String toString() {
+        return "User{" +
+                "id='" + id + '\'' +
+                ", username='" + username + '\'' +
+                ", email='" + email + '\'' +
+                ", password='" + (password != null ? "***" : "null") + '\'' +
+                '}';
+    }
+
     public String getId() {
         return id;
     }

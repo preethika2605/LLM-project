@@ -20,6 +20,7 @@ function App() {
   }
 
   const [isLoggedIn, setIsLoggedIn] = useState(!!savedUser);
+  const [currentUser, setCurrentUser] = useState(savedUser || null);
   const [username, setUsername] = useState(savedUser?.username || "");
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -68,54 +69,56 @@ function App() {
   }, [selectedModel]);
 
   useEffect(() => {
-    // Load chat history from backend on mount
-    const loadHistories = async () => {
-      try {
-        const history = await getChatHistory();
-        // Group by conversationId
-        const conversationMap = new Map();
+    // Load chat history from backend when logged in
+    if (isLoggedIn && currentUser?.id) {
+      const loadHistories = async () => {
+        try {
+          const history = await getChatHistory(currentUser.id);
+          // Group by conversationId
+          const conversationMap = new Map();
 
-        history.forEach((item) => {
-          const conversationId = item.conversationId || item.id;
-          if (!conversationId) return;
+          history.forEach((item) => {
+            const conversationId = item.conversationId || item.id;
+            if (!conversationId) return;
 
-          if (!conversationMap.has(conversationId)) {
-            conversationMap.set(conversationId, {
-              id: conversationId,
-              title: buildChatTitle(item.userMessage),
-              messages: [],
-              active: false
-            });
-          }
-          conversationMap.get(conversationId).messages.push(item);
-        });
-
-        const chats = Array.from(conversationMap.values())
-          .map((chat) => {
-            const sortedMessages = (chat.messages || []).sort(
-              (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
-            );
-            const lastTimestamp = sortedMessages.length > 0 ? sortedMessages[sortedMessages.length - 1].timestamp : null;
-            return {
-              ...chat,
-              messages: sortedMessages,
-              lastTimestamp
-            };
-          })
-          .sort((a, b) => {
-            const aLast = a.lastTimestamp || 0;
-            const bLast = b.lastTimestamp || 0;
-            return new Date(bLast) - new Date(aLast);
+            if (!conversationMap.has(conversationId)) {
+              conversationMap.set(conversationId, {
+                id: conversationId,
+                title: buildChatTitle(item.userMessage),
+                messages: [],
+                active: false
+              });
+            }
+            conversationMap.get(conversationId).messages.push(item);
           });
 
-        setChatHistories(chats);
-      } catch (e) {
-        console.error('Failed to load chat history:', e);
-        setChatHistories([]);
-      }
-    };
-    loadHistories();
-  }, []);
+          const chats = Array.from(conversationMap.values())
+            .map((chat) => {
+              const sortedMessages = (chat.messages || []).sort(
+                (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+              );
+              const lastTimestamp = sortedMessages.length > 0 ? sortedMessages[sortedMessages.length - 1].timestamp : null;
+              return {
+                ...chat,
+                messages: sortedMessages,
+                lastTimestamp
+              };
+            })
+            .sort((a, b) => {
+              const aLast = a.lastTimestamp || 0;
+              const bLast = b.lastTimestamp || 0;
+              return new Date(bLast) - new Date(aLast);
+            });
+
+          setChatHistories(chats);
+        } catch (e) {
+          console.error('Failed to load chat history:', e);
+          setChatHistories([]);
+        }
+      };
+      loadHistories();
+    }
+  }, [isLoggedIn, currentUser?.id]);
 
   // 🔐 IF NOT LOGGED IN → SHOW LOGIN PAGE
   if (!isLoggedIn) {
@@ -123,6 +126,7 @@ function App() {
       <Login
         onLogin={(user) => {
           localStorage.setItem("user", JSON.stringify(user)); // Save to LS
+          setCurrentUser(user);
           setUsername(user.username);
           setIsLoggedIn(true);
         }}
@@ -133,7 +137,16 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('user');
     setIsLoggedIn(false);
+    setCurrentUser(null);
     setUsername('');
+    setChatHistories([]);
+    setCurrentChatId(null);
+  }
+
+  const handleClearChatHistory = () => {
+    localStorage.removeItem('chatHistories');
+    setChatHistories([]);
+    setCurrentChatId(null);
   }
 
   const handleSelectHistory = (id) => {
@@ -229,7 +242,7 @@ function App() {
         )}
 
         <div className="main-content">
-          <ChatPage selectedModel={selectedModel} currentChatId={currentChatId} chatHistories={chatHistories} onChatIdUpdate={handleChatIdUpdate} onMessageSent={handleMessageSent} />
+          <ChatPage selectedModel={selectedModel} currentChatId={currentChatId} chatHistories={chatHistories} currentUser={currentUser} onChatIdUpdate={handleChatIdUpdate} onMessageSent={handleMessageSent} />
         </div>
       </div>
 
@@ -241,6 +254,7 @@ function App() {
           darkMode={darkMode}
           onDarkModeChange={setDarkMode}
           onModelChange={setSelectedModel}
+          onClearChatHistory={handleClearChatHistory}
         />
       )}
     </div>

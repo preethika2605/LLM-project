@@ -4,11 +4,18 @@ import remarkGfm from 'remark-gfm';
 import MessageInput from "../components/MessageInput";
 import { sendMessageToBackend } from "../services/api";
 
-const ChatPage = ({ selectedModel, currentChatId, chatHistories = [], onChatIdUpdate, onMessageSent }) => {
+const ChatPage = ({ selectedModel, currentChatId, chatHistories = [], currentUser, onChatIdUpdate, onMessageSent }) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
+  const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
+
+  const handleCopy = (text, index) => {
+    navigator.clipboard.writeText(text)
+    setCopiedIndex(index)
+    setTimeout(() => setCopiedIndex(null), 2000)
+  }
 
   useEffect(() => {
     if (currentChatId === null || !currentChatId) {
@@ -51,9 +58,14 @@ const ChatPage = ({ selectedModel, currentChatId, chatHistories = [], onChatIdUp
       const backendConversationId =
         currentChatId && !currentChatId.startsWith('temp-') ? currentChatId : null;
 
+      if (!currentUser?.id) {
+        throw new Error('User ID is missing');
+      }
+
       const data = await sendMessageToBackend(
         msg.text,
         selectedModel,
+        currentUser.id,
         backendConversationId,
         messageKeyword
       );
@@ -88,11 +100,20 @@ const ChatPage = ({ selectedModel, currentChatId, chatHistories = [], onChatIdUp
           >
             <div className="message-content">
               {msg.sender === "bot" ? (
-                <div className="markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {msg.text}
-                  </ReactMarkdown>
-                </div>
+                <>
+                  <div className="markdown-body">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.text}
+                    </ReactMarkdown>
+                  </div>
+                  <button 
+                    className="copy-button"
+                    onClick={() => handleCopy(msg.text, index)}
+                    title="Copy message"
+                  >
+                    {copiedIndex === index ? '✓ Copied' : '📋 Copy'}
+                  </button>
+                </>
               ) : (
                 msg.text
               )}

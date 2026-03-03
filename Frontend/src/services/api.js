@@ -86,9 +86,12 @@ export async function loginUser(credentials) {
   }
 }
 
-export async function getChatHistory() {
+export async function getChatHistory(userId) {
   try {
-    const res = await fetch(`${BASE_URL}/api/chat`, fetchOptions('GET'));
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+    const res = await fetch(`${BASE_URL}/api/chat?userId=${encodeURIComponent(userId)}`, fetchOptions('GET'));
     if (!res.ok) {
       const text = await res.text();
       throw new Error(text || 'Failed to load history');
@@ -100,9 +103,12 @@ export async function getChatHistory() {
   }
 }
 
-export async function sendMessageToBackend(message, model, conversationId = null, keyword = null) {
+export async function sendMessageToBackend(message, model, userId, conversationId = null, keyword = null) {
   try {
-    const body = { message, model };
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+    const body = { message, model, userId };
     if (conversationId) {
       body.conversationId = conversationId;
     }

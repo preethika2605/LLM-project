@@ -11,6 +11,7 @@ public class ChatHistory {
     @Id
     private String id;
 
+    private String userId;
     private String conversationId;
     private String userMessage;
     private String aiResponse;
@@ -20,14 +21,16 @@ public class ChatHistory {
         this.timestamp = LocalDateTime.now();
     }
 
-    public ChatHistory(String conversationId, String userMessage, String aiResponse) {
+    public ChatHistory(String userId, String conversationId, String userMessage, String aiResponse) {
+        this.userId = userId;
         this.conversationId = conversationId;
         this.userMessage = userMessage;
         this.aiResponse = aiResponse;
         this.timestamp = LocalDateTime.now();
     }
 
-    public ChatHistory(String conversationId, String userMessage, String aiResponse, LocalDateTime timestamp) {
+    public ChatHistory(String userId, String conversationId, String userMessage, String aiResponse, LocalDateTime timestamp) {
+        this.userId = userId;
         this.conversationId = conversationId;
         this.userMessage = userMessage;
         this.aiResponse = aiResponse;
@@ -36,6 +39,14 @@ public class ChatHistory {
 
     public String getId() {
         return id;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
     }
 
     public String getUserMessage() {

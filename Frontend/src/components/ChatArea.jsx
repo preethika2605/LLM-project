@@ -1,10 +1,17 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const ChatArea = ({ messages }) => {
   const messagesEndRef = useRef(null)
+  const [copiedIndex, setCopiedIndex] = useState(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  const handleCopy = (text, index) => {
+    navigator.clipboard.writeText(text)
+    setCopiedIndex(index)
+    setTimeout(() => setCopiedIndex(null), 2000)
   }
 
   useEffect(() => {
@@ -30,6 +37,15 @@ const ChatArea = ({ messages }) => {
               </div>
               <div className="message-content">
                 <div className="message-text">{message.text}</div>
+                {message.sender !== 'user' && (
+                  <button 
+                    className="copy-button"
+                    onClick={() => handleCopy(message.text, index)}
+                    title="Copy message"
+                  >
+                    {copiedIndex === index ? '✓ Copied' : '📋 Copy'}
+                  </button>
+                )}
                 <div className="message-time">
                   {new Date(message.timestamp).toLocaleTimeString([], { 
                     hour: '2-digit', 

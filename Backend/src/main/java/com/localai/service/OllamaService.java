@@ -30,9 +30,12 @@ public class OllamaService {
             model = "qwen2.5:1.5b"; // Default fallback
         }
 
+        // Generate appropriate system prompt based on user request
+        String systemPrompt = generateSystemPrompt(model, prompt);
+
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
-        body.put("system", "You are a helpful AI assistant. Provide clear, accurate, and concise responses.");
+        body.put("system", systemPrompt);
         body.put("prompt", prompt);
         body.put("stream", false);
 
@@ -45,6 +48,45 @@ public class OllamaService {
             e.printStackTrace();
             return "Error communicating with Ollama: " + e.getMessage();
         }
+    }
+
+    private String generateSystemPrompt(String model, String prompt) {
+        String lowerPrompt = prompt.toLowerCase();
+
+        // Check if request is for code without comments
+        if ((lowerPrompt.contains("code") || lowerPrompt.contains("write") || lowerPrompt.contains("script")) &&
+            (lowerPrompt.contains("without comment") || lowerPrompt.contains("no comment") || 
+             lowerPrompt.contains("without explanation") || lowerPrompt.contains("no explanation"))) {
+            return "You are an expert programmer. Generate ONLY the code requested. " +
+                   "DO NOT include any comments, explanations, or markdown formatting. " +
+                   "Return ONLY the raw code with NO comments whatsoever. " +
+                   "Strip all // comments, /* */ comments, and # comments from the output.";
+        }
+
+        // Check if request is for output/examples/results
+        if (lowerPrompt.contains("output") || lowerPrompt.contains("sample output") || 
+            lowerPrompt.contains("example") || lowerPrompt.contains("result") ||
+            lowerPrompt.contains("show me") || lowerPrompt.contains("demonstration")) {
+            return "You are a helpful assistant. Provide ONLY the requested output or example. " +
+                   "Do NOT include code or explanations unless specifically asked. " +
+                   "Show clear, concise results or examples that directly answer the question.";
+        }
+
+        // Check if request is for code (general)
+        if (lowerPrompt.contains("code") || lowerPrompt.contains("script") || lowerPrompt.contains("function") ||
+            lowerPrompt.contains("class") || lowerPrompt.contains("algorithm")) {
+            return "You are an expert programmer. Provide well-commented, clean code. " +
+                   "Include helpful comments explaining the logic. Use best practices and follow the language conventions.";
+        }
+
+        // Check if request is for explanations or tutorials
+        if (lowerPrompt.contains("explain") || lowerPrompt.contains("how to") || lowerPrompt.contains("tutorial")) {
+            return "You are a helpful educator. Explain concepts clearly and concisely with examples. " +
+                   "Break down complex ideas into simple steps.";
+        }
+
+        // Default system prompt
+        return "You are a helpful AI assistant. Provide clear, accurate, and concise responses.";
     }
 
     public List<String> getAvailableModels() {
