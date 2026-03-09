@@ -4,12 +4,14 @@ package com.localai;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @SpringBootApplication
 @org.springframework.context.annotation.ComponentScan(basePackages = "com.localai")
 @org.springframework.data.mongodb.repository.config.EnableMongoRepositories(basePackages = "com.localai.repository")
+@EnableAsync
 public class BackendApplication {
 
     public static void main(String[] args) {
@@ -20,7 +22,7 @@ public class BackendApplication {
     public WebMvcConfigurer corsConfigurer() {
         return new WebMvcConfigurer() {
             @Override
-            public void addCorsMappings(CorsRegistry registry) {
+            public void addCorsMappings(@org.springframework.lang.NonNull CorsRegistry registry) {
                 registry.addMapping("/api/**")
                         .allowedOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:3000")
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
@@ -59,3 +61,4 @@ public class BackendApplication {
         }
     }
 }
+

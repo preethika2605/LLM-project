@@ -1,108 +1,101 @@
 package com.localai.controller;
 
+import com.localai.model.User;
+import com.localai.repository.UserRepository;
+import com.localai.security.JwtUtil;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:5174", "http://127.0.0.1:3000"}, allowCredentials = "true")
+@CrossOrigin(origins = {
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:3000"
+}, allowCredentials = "true")
 public class AuthController {
 
-    private final com.localai.repository.UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final JwtUtil jwtUtil;
+    private final PasswordEncoder passwordEncoder;
 
-    public AuthController(com.localai.repository.UserRepository userRepository) {
+    public AuthController(UserRepository userRepository, JwtUtil jwtUtil, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
-        System.out.println("AuthController initialized!");
+        this.jwtUtil = jwtUtil;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody com.localai.model.User user) {
+    public ResponseEntity<?> register(@RequestBody User user) {
         try {
-            System.out.println("\n========== REGISTRATION REQUEST ==========");
-            System.out.println("📝 Incoming User Data: " + user);
-            System.out.println("Username: " + user.getUsername());
-            System.out.println("Email: " + user.getEmail());
-            System.out.println("Password: " + (user.getPassword() != null ? "***" : "null"));
-            
-            if (user.getUsername() == null || user.getUsername().isEmpty()) {
-                System.out.println("❌ Error: Username is required");
+            if (user.getUsername() == null || user.getUsername().isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Username is required"));
             }
-            
-            if (user.getPassword() == null || user.getPassword().isEmpty()) {
-                System.out.println("❌ Error: Password is required");
+
+            if (user.getPassword() == null || user.getPassword().isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Password is required"));
             }
-            
-            System.out.println("🔍 Checking if user already exists...");
-            com.localai.model.User existingUser = userRepository.findByUsername(user.getUsername());
+
+            User existingUser = userRepository.findByUsername(user.getUsername());
             if (existingUser != null) {
-                System.out.println("❌ Error: User already exists");
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "User already exists"));
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Map.of("error", "User already exists"));
             }
-            System.out.println("✓ User doesn't exist, proceeding with save");
-            
-            System.out.println("💾 Saving user to MongoDB...");
-            com.localai.model.User savedUser = userRepository.save(user);
-            System.out.println("✅ User saved successfully!");
-            System.out.println("Saved User Data: " + savedUser);
-            System.out.println("Generated ID: " + savedUser.getId());
-            System.out.println("========== END REGISTRATION ==========");
-            return ResponseEntity.ok(savedUser);
+
+            user.setPassword(passwordEncoder.encode(user.getPassword()));
+            User savedUser = userRepository.save(user);
+            String token = jwtUtil.generateToken(savedUser.getId(), savedUser.getUsername());
+
+            return ResponseEntity.ok(buildAuthResponse(savedUser, token, "Registration successful"));
         } catch (Exception e) {
-            System.err.println("❌ REGISTRATION ERROR: " + e.getMessage());
-            e.printStackTrace();
-            System.out.println("========== END REGISTRATION (ERROR) ==========");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Registration failed: " + e.getMessage()));
         }
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody com.localai.model.User loginRequest) {
+    public ResponseEntity<?> login(@RequestBody User loginRequest) {
         try {
-            System.out.println("\n========== LOGIN REQUEST ==========");
-            System.out.println("👤 Login Attempt for: " + loginRequest.getUsername());
-            
-            if (loginRequest.getUsername() == null || loginRequest.getUsername().isEmpty()) {
-                System.out.println("❌ Error: Username is required");
+            if (loginRequest.getUsername() == null || loginRequest.getUsername().isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Username is required"));
             }
-            
-            if (loginRequest.getPassword() == null || loginRequest.getPassword().isEmpty()) {
-                System.out.println("❌ Error: Password is required");
+
+            if (loginRequest.getPassword() == null || loginRequest.getPassword().isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Password is required"));
             }
-            
-            System.out.println("🔍 Searching for user in database...");
-            com.localai.model.User user = userRepository.findByUsername(loginRequest.getUsername());
-            
-            if (user != null) {
-                System.out.println("✓ User found: " + user);
-                System.out.println("🔐 Verifying password...");
-                if (user.getPassword().equals(loginRequest.getPassword())) {
-                    System.out.println("✅ Login successful! ");
-                    System.out.println("User Details: " + user);
-                    System.out.println("========== END LOGIN (SUCCESS) ==========");
-                    return ResponseEntity.ok(user);
-                } else {
-                    System.out.println("❌ Password mismatch");
-                }
-            } else {
-                System.out.println("❌ User not found in database");
+
+            User user = userRepository.findByUsername(loginRequest.getUsername());
+            if (user == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("error", "Invalid credentials"));
             }
-            
-            System.out.println("❌ Invalid credentials");
-            System.out.println("========== END LOGIN (FAILED) ==========");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Invalid credentials"));
+
+            boolean passwordMatches = passwordEncoder.matches(loginRequest.getPassword(), user.getPassword());
+
+            // Backward compatibility for old plain-text records.
+            if (!passwordMatches && user.getPassword().equals(loginRequest.getPassword())) {
+                user.setPassword(passwordEncoder.encode(loginRequest.getPassword()));
+                userRepository.save(user);
+                passwordMatches = true;
+            }
+
+            if (!passwordMatches) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("error", "Invalid credentials"));
+            }
+
+            String token = jwtUtil.generateToken(user.getId(), user.getUsername());
+            return ResponseEntity.ok(buildAuthResponse(user, token, "Login successful"));
         } catch (Exception e) {
-            System.err.println("❌ LOGIN ERROR: " + e.getMessage());
-            e.printStackTrace();
-            System.out.println("========== END LOGIN (ERROR) ==========");
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Login failed: " + e.getMessage()));
         }
@@ -116,20 +109,24 @@ public class AuthController {
     @GetMapping("/debug/users")
     public ResponseEntity<?> debugGetAllUsers() {
         try {
-            System.out.println("\n========== DEBUG: GET ALL USERS ==========");
-            java.util.List<com.localai.model.User> allUsers = userRepository.findAll();
-            System.out.println("Total users in database: " + allUsers.size());
-            allUsers.forEach(user -> System.out.println("  - " + user));
-            System.out.println("========== END DEBUG ==========");
+            List<User> users = userRepository.findAll();
             return ResponseEntity.ok(Map.of(
-                "totalUsers", allUsers.size(),
-                "users", allUsers
+                    "totalUsers", users.size(),
+                    "users", users
             ));
         } catch (Exception e) {
-            System.err.println("❌ DEBUG ERROR: " + e.getMessage());
-            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to fetch users: " + e.getMessage()));
         }
+    }
+
+    private Map<String, Object> buildAuthResponse(User user, String token, String message) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", user.getId());
+        response.put("username", user.getUsername());
+        response.put("email", user.getEmail());
+        response.put("token", token);
+        response.put("message", message);
+        return response;
     }
 }

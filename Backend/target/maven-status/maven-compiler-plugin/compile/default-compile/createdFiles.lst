@@ -1,10 +1,14 @@
-com\localai\controller\AuthController.class
+com\localai\config\WebConfig.class
 com\localai\controller\ChatController.class
-com\localai\model\ChatHistory.class
 com\localai\repository\UserRepository.class
-com\localai\repository\ChatHistoryRepository.class
 com\localai\BackendApplication$1.class
 com\localai\service\OllamaService.class
 com\localai\BackendApplication.class
 com\localai\model\User.class
+com\localai\controller\AuthController.class
+com\localai\model\ChatHistory.class
+com\localai\repository\ChatHistoryRepository.class
+com\localai\security\JwtAuthenticationFilter.class
+com\localai\security\JwtUtil.class
+com\localai\config\SecurityConfig.class
 com\localai\BackendApplication$InnerController.class

@@ -3,38 +3,93 @@ import Sidebar from "./components/Sidebar";
 import ChatPage from "./pages/ChatPage";
 import SettingsModal from "./components/SettingsModal";
 import Login from "./pages/Login";
-import { getChatHistory } from "./services/api";
+import { getChatHistory, getToken, isTokenExpired, removeToken } from "./services/api";
 import "./App.css";
 
 function App() {
-  // Initialize from LocalStorage
-  let savedUser = null;
-  try {
-    const stored = localStorage.getItem("user");
-    if (stored) {
-      savedUser = JSON.parse(stored);
+  const [initialSession] = useState(() => {
+    let savedUser = null;
+    try {
+      const stored = localStorage.getItem("user");
+      if (stored) {
+        savedUser = JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error("Failed to parse user from local storage", e);
+      localStorage.removeItem("user");
     }
-  } catch (e) {
-    console.error("Failed to parse user from local storage", e);
-    localStorage.removeItem("user");
-  }
 
-  const [isLoggedIn, setIsLoggedIn] = useState(!!savedUser);
-  const [currentUser, setCurrentUser] = useState(savedUser || null);
-  const [username, setUsername] = useState(savedUser?.username || "");
+    const token = getToken();
+    const hasValidToken = !!token && !isTokenExpired();
+
+    if (!savedUser || !hasValidToken) {
+      return { isLoggedIn: false, currentUser: null, username: "" };
+    }
+
+    return {
+      isLoggedIn: true,
+      currentUser: savedUser,
+      username: savedUser?.username || ""
+    };
+  });
+
+  const [isLoggedIn, setIsLoggedIn] = useState(initialSession.isLoggedIn);
+  const [currentUser, setCurrentUser] = useState(initialSession.currentUser);
+  const [username, setUsername] = useState(initialSession.username);
+
+  useEffect(() => {
+    if (!initialSession.isLoggedIn) {
+      removeToken();
+    }
+  }, [initialSession.isLoggedIn]);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
-  const [selectedModel, setSelectedModel] = useState("qwen2.5:1.5b");
+  const [selectedModel, setSelectedModel] = useState("llama3.2:1b");
   const [currentChatId, setCurrentChatId] = useState(null);
   const [chatHistories, setChatHistories] = useState([]);
 
-  const buildChatTitle = (text) => {
+  const handleSessionExpired = () => {
+    removeToken();
+    localStorage.removeItem("user");
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    setUsername("");
+    setChatHistories([]);
+    setCurrentChatId(null);
+  };
+
+  const buildChatKeyword = (text) => {
     if (!text) return "New Chat";
-    const trimmed = text.trim();
-    if (!trimmed) return "New Chat";
-    return trimmed.length > 30 ? `${trimmed.slice(0, 30)}...` : trimmed;
+
+    const normalized = text
+      .replace(/[^a-zA-Z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!normalized) return "New Chat";
+
+    const lower = normalized.toLowerCase();
+    if (lower.includes("analyze this image")) {
+      return "Image Analysis";
+    }
+
+    const stopWords = new Set([
+      "the", "a", "an", "and", "or", "to", "for", "of", "in", "on", "at",
+      "is", "are", "was", "were", "be", "this", "that", "it", "with",
+      "about", "please", "can", "you", "me", "my", "i"
+    ]);
+
+    const words = normalized.split(" ");
+    const meaningfulWords = words.filter(
+      (word) => word.length > 2 && !stopWords.has(word.toLowerCase())
+    );
+    const selectedWords = (meaningfulWords.length ? meaningfulWords : words).slice(0, 4);
+
+    return selectedWords
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(" ");
   };
 
   // Load settings from localStorage on mount
@@ -81,15 +136,24 @@ function App() {
             const conversationId = item.conversationId || item.id;
             if (!conversationId) return;
 
+            const historyKeyword = item.keyword || buildChatKeyword(item.userMessage);
+
             if (!conversationMap.has(conversationId)) {
               conversationMap.set(conversationId, {
                 id: conversationId,
-                title: buildChatTitle(item.userMessage),
+                title: historyKeyword,
+                keyword: historyKeyword,
                 messages: [],
                 active: false
               });
             }
-            conversationMap.get(conversationId).messages.push(item);
+
+            const conversation = conversationMap.get(conversationId);
+            conversation.messages.push(item);
+            if ((!conversation.keyword || conversation.keyword === "New Chat") && historyKeyword) {
+              conversation.keyword = historyKeyword;
+              conversation.title = historyKeyword;
+            }
           });
 
           const chats = Array.from(conversationMap.values())
@@ -98,8 +162,15 @@ function App() {
                 (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
               );
               const lastTimestamp = sortedMessages.length > 0 ? sortedMessages[sortedMessages.length - 1].timestamp : null;
+              const chatKeyword =
+                sortedMessages[0]?.keyword ||
+                chat.keyword ||
+                buildChatKeyword(sortedMessages[0]?.userMessage);
+
               return {
                 ...chat,
+                title: chatKeyword || "New Chat",
+                keyword: chatKeyword || "New Chat",
                 messages: sortedMessages,
                 lastTimestamp
               };
@@ -112,6 +183,10 @@ function App() {
 
           setChatHistories(chats);
         } catch (e) {
+          if (e?.message?.includes("Session expired")) {
+            handleSessionExpired();
+            return;
+          }
           console.error('Failed to load chat history:', e);
           setChatHistories([]);
         }
@@ -135,12 +210,7 @@ function App() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('user');
-    setIsLoggedIn(false);
-    setCurrentUser(null);
-    setUsername('');
-    setChatHistories([]);
-    setCurrentChatId(null);
+    handleSessionExpired();
   }
 
   const handleClearChatHistory = () => {
@@ -175,9 +245,28 @@ function App() {
     setCurrentChatId(newId);
   }
 
-  const handleMessageSent = (conversationId, userMessage, aiResponse, timestamp) => {
+  const handleMessageSent = (
+    conversationId,
+    userMessage,
+    aiResponse,
+    timestamp,
+    imageData = null,
+    fileAttachment = null,
+    keyword = null
+  ) => {
     const safeConversationId = conversationId || `temp-${Date.now()}`;
-    const newMessage = { userMessage, aiResponse, timestamp };
+    const resolvedKeyword = keyword || buildChatKeyword(userMessage);
+    const newMessage = {
+      userMessage,
+      aiResponse,
+      timestamp,
+      imageData: imageData || null,
+      fileData: fileAttachment?.data || null,
+      fileName: fileAttachment?.name || null,
+      fileType: fileAttachment?.type || null,
+      fileSize: fileAttachment?.size || null,
+      keyword: resolvedKeyword
+    };
 
     setChatHistories(prev => {
       const existing = prev.find(chat => chat.id === safeConversationId);
@@ -185,7 +274,8 @@ function App() {
       if (!existing) {
         return [{
           id: safeConversationId,
-          title: buildChatTitle(userMessage),
+          title: resolvedKeyword,
+          keyword: resolvedKeyword,
           messages: [newMessage]
         }, ...prev];
       }
@@ -194,7 +284,8 @@ function App() {
         chat.id === safeConversationId ? {
           ...chat,
           messages: [...(chat.messages || []), newMessage],
-          title: chat.title === 'New Chat' ? buildChatTitle(userMessage) : chat.title
+          keyword: chat.keyword && chat.keyword !== "New Chat" ? chat.keyword : resolvedKeyword,
+          title: chat.keyword && chat.keyword !== "New Chat" ? chat.keyword : resolvedKeyword
         } : chat
       );
     });
@@ -206,12 +297,6 @@ function App() {
     if (currentChatId === id) setCurrentChatId(null);
   }
 
-  // Ensure New Chat clears the chat area
-  useEffect(() => {
-    if (currentChatId === null) {
-      // Optionally, you can also reset other chat-related state here if needed
-    }
-  }, [currentChatId]);
 
   // ✅ AFTER LOGIN → YOUR EXISTING APP
   return (
@@ -242,7 +327,15 @@ function App() {
         )}
 
         <div className="main-content">
-          <ChatPage selectedModel={selectedModel} currentChatId={currentChatId} chatHistories={chatHistories} currentUser={currentUser} onChatIdUpdate={handleChatIdUpdate} onMessageSent={handleMessageSent} />
+          <ChatPage
+            selectedModel={selectedModel}
+            currentChatId={currentChatId}
+            chatHistories={chatHistories}
+            currentUser={currentUser}
+            onChatIdUpdate={handleChatIdUpdate}
+            onMessageSent={handleMessageSent}
+            onSessionExpired={handleSessionExpired}
+          />
         </div>
       </div>
 

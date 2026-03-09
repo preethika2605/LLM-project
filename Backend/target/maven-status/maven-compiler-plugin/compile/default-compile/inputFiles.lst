@@ -1,8 +1,12 @@
 C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\model\User.java
+C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\security\JwtUtil.java
 C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\repository\UserRepository.java
 C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\controller\ChatController.java
 C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\BackendApplication.java
+C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\config\SecurityConfig.java
 C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\model\ChatHistory.java
+C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\security\JwtAuthenticationFilter.java
 C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\repository\ChatHistoryRepository.java
 C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\service\OllamaService.java
+C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\config\WebConfig.java
 C:\Users\abina\LLM-project\Backend\src\main\java\com\localai\controller\AuthController.java
