@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import MessageInput from "../components/MessageInput";
-import { sendMessageToBackend } from "../services/api";
+import { sendMessageToBackend, sendMessageToBackendStream } from "../services/api";
 
 const buildFileDownloadHref = (file) => {
   if (!file || typeof file.data !== "string" || !file.data) {
@@ -164,6 +164,20 @@ const ChatPage = ({
     setTimeout(() => setDownloadedIndex(null), 2000);
   };
 
+  const updateLastBotMessage = (text) => {
+    setMessages((prev) => {
+      if (!prev.length) return prev;
+      const updated = [...prev];
+      const lastIndex = updated.length - 1;
+      if (updated[lastIndex]?.sender === "bot") {
+        updated[lastIndex] = { ...updated[lastIndex], text };
+      } else {
+        updated.push({ sender: "bot", text, timestamp: new Date().toISOString() });
+      }
+      return updated;
+    });
+  };
+
   const buildSimpleKeyword = (text) => {
     if (!text) return "New Chat";
 
@@ -286,52 +300,76 @@ const ChatPage = ({
         throw new Error("User ID is missing");
       }
 
-      const data = await sendMessageToBackend(
-        messageText,
-        selectedModel,
-        currentUser.id,
-        backendConversationId,
-        messageKeyword,
-        msg.image || null,
-        msg.file?.data || null,
-        msg.file?.name || null,
-        msg.file?.type || null,
-        msg.file?.size ?? null
-      );
+      let streamedResponse = "";
+      let resolvedConversationId = backendConversationId || currentChatId || `temp-${Date.now()}`;
 
-      if (data.error) {
-        console.error("Backend error:", data.error);
+      try {
+        const streamResult = await sendMessageToBackendStream(
+          messageText,
+          selectedModel,
+          currentUser.id,
+          backendConversationId,
+          messageKeyword,
+          msg.image || null,
+          msg.file?.data || null,
+          msg.file?.name || null,
+          msg.file?.type || null,
+          msg.file?.size ?? null,
+          (_token, fullText) => {
+            streamedResponse = fullText;
+            updateLastBotMessage(fullText);
+          }
+        );
+        streamedResponse = streamResult.response;
+        resolvedConversationId = streamResult.conversationId || resolvedConversationId;
+      } catch (streamErr) {
+        console.warn("Streaming failed, falling back to non-streaming:", streamErr?.message);
+        const data = await sendMessageToBackend(
+          messageText,
+          selectedModel,
+          currentUser.id,
+          backendConversationId,
+          messageKeyword,
+          msg.image || null,
+          msg.file?.data || null,
+          msg.file?.name || null,
+          msg.file?.type || null,
+          msg.file?.size ?? null
+        );
+
+        if (data.error) {
+          console.error("Backend error:", data.error);
+          setMessages((prev) => prev.slice(0, -1).concat({
+            sender: "bot",
+            text: `Error: ${data.error}`,
+            timestamp: new Date().toISOString()
+          }));
+          setIsLoading(false);
+          return;
+        }
+
+        if (!data.response) {
+          console.error("No response from backend:", data);
+          setMessages((prev) => prev.slice(0, -1).concat({
+            sender: "bot",
+            text: "Error: No response from backend. Check browser console and backend logs.",
+            timestamp: new Date().toISOString()
+          }));
+          setIsLoading(false);
+          return;
+        }
+
+        streamedResponse = data.response;
+        resolvedConversationId =
+          data.conversationId ||
+          resolvedConversationId;
+
         setMessages((prev) => prev.slice(0, -1).concat({
           sender: "bot",
-          text: `Error: ${data.error}`,
+          text: data.response,
           timestamp: new Date().toISOString()
         }));
-        setIsLoading(false);
-        return;
       }
-
-      if (!data.response) {
-        console.error("No response from backend:", data);
-        setMessages((prev) => prev.slice(0, -1).concat({
-          sender: "bot",
-          text: "Error: No response from backend. Check browser console and backend logs.",
-          timestamp: new Date().toISOString()
-        }));
-        setIsLoading(false);
-        return;
-      }
-
-      const resolvedConversationId =
-        data.conversationId ||
-        backendConversationId ||
-        currentChatId ||
-        `temp-${Date.now()}`;
-
-      setMessages((prev) => prev.slice(0, -1).concat({
-        sender: "bot",
-        text: data.response,
-        timestamp: new Date().toISOString()
-      }));
 
       if (resolvedConversationId !== currentChatId) {
         onChatIdUpdate(resolvedConversationId);
@@ -340,7 +378,7 @@ const ChatPage = ({
       onMessageSent(
         resolvedConversationId,
         messageText,
-        data.response,
+        streamedResponse,
         new Date().toISOString(),
         msg.image || null,
         msg.file || null,
@@ -385,7 +423,14 @@ const ChatPage = ({
                 {msg.sender === "bot" ? (
                   <>
                     <div className="markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          a: ({ node, ...props }) => (
+                            <a {...props} target="_blank" rel="noopener noreferrer" />
+                          )
+                        }}
+                      >
                         {msg.text}
                       </ReactMarkdown>
                     </div>

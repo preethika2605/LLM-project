@@ -529,6 +529,9 @@ body,
 
 .message-content {
   flex: 1;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-actions {
@@ -1691,10 +1694,16 @@ body,
 .markdown-body {
   font-size: 15px;
   line-height: 1.6;
+  white-space: pre-wrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-body p {
   margin-bottom: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-body h1,
@@ -1732,6 +1741,7 @@ body,
   border-radius: 8px;
   overflow-x: auto;
   margin-bottom: 12px;
+  max-width: 100%;
 }
 
 .dark-mode .markdown-body pre {

@@ -285,6 +285,128 @@ export async function sendMessageToBackend(
   }
 }
 
+const parseSseEvents = (buffer) => {
+  const events = [];
+  let remaining = buffer.replace(/\r\n/g, "\n");
+
+  let boundaryIndex;
+  while ((boundaryIndex = remaining.indexOf("\n\n")) !== -1) {
+    const rawEvent = remaining.slice(0, boundaryIndex);
+    remaining = remaining.slice(boundaryIndex + 2);
+
+    const lines = rawEvent.split("\n");
+    let eventName = "message";
+    const dataLines = [];
+
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim() || "message";
+      } else if (line.startsWith("data:")) {
+        let value = line.slice(5);
+        if (value.startsWith(" ")) {
+          value = value.slice(1);
+        }
+        dataLines.push(value);
+      }
+    }
+
+    if (dataLines.length) {
+      events.push({ event: eventName, data: dataLines.join("\n") });
+    }
+  }
+
+  return { events, remaining };
+};
+
+export async function sendMessageToBackendStream(
+  message,
+  model,
+  userId,
+  conversationId = null,
+  keyword = null,
+  imageData = null,
+  fileData = null,
+  fileName = null,
+  fileType = null,
+  fileSize = null,
+  onToken = null
+) {
+  if (!userId) {
+    throw new Error("User ID is required");
+  }
+
+  const token = getToken();
+  if (!token || isTokenExpired()) {
+    console.warn("No JWT token found - user may need to login");
+    removeToken();
+    throw new Error("Session expired. Please login again.");
+  }
+
+  const body = { message, model, userId, imageData };
+  if (conversationId) body.conversationId = conversationId;
+  if (keyword) body.keyword = keyword;
+  if (fileData) body.file = fileData;
+  if (fileName) body.fileName = fileName;
+  if (fileType) body.fileType = fileType;
+  if (fileSize !== null && fileSize !== undefined) body.fileSize = fileSize;
+
+  const streamOptions = fetchOptions("POST", body, true);
+  streamOptions.headers = {
+    ...streamOptions.headers,
+    Accept: "text/event-stream"
+  };
+
+  const res = await fetch(`${BASE_URL}/api/chat/stream`, streamOptions);
+
+  if (!res.ok) {
+    const text = await res.text();
+    if (res.status === 401) {
+      removeToken();
+      throw new Error("Session expired. Please login again.");
+    }
+    throw new Error(`Backend error (${res.status}): ${text}`);
+  }
+
+  if (!res.body) {
+    throw new Error("Streaming not supported in this browser.");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let fullResponse = "";
+  let resolvedConversationId = conversationId;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const parsed = parseSseEvents(buffer);
+    buffer = parsed.remaining;
+
+    for (const evt of parsed.events) {
+      if (evt.event === "meta") {
+        try {
+          const meta = JSON.parse(evt.data);
+          if (meta?.conversationId) {
+            resolvedConversationId = meta.conversationId;
+          }
+        } catch (_e) {}
+      } else if (evt.event === "token") {
+        fullResponse += evt.data;
+        if (typeof onToken === "function") {
+          onToken(evt.data, fullResponse);
+        }
+      } else if (evt.event === "error") {
+        throw new Error(evt.data || "Streaming error");
+      }
+    }
+  }
+
+  return { response: fullResponse, conversationId: resolvedConversationId };
+}
+
 export async function getAvailableModels() {
   try {
     const token = getToken();
