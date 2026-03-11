@@ -4,9 +4,14 @@ import com.localai.model.ChatHistory;
 import com.localai.repository.ChatHistoryRepository;
 import com.localai.security.JwtAuthenticationFilter;
 import com.localai.service.OllamaService;
+import com.localai.service.ReferencePaperService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.codec.ServerSentEvent;
+import reactor.core.publisher.Flux;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -30,10 +35,15 @@ public class ChatController {
 
     private final OllamaService ollamaService;
     private final ChatHistoryRepository chatHistoryRepository;
+    private final ReferencePaperService referencePaperService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public ChatController(OllamaService ollamaService, ChatHistoryRepository chatHistoryRepository) {
+    public ChatController(OllamaService ollamaService,
+                          ChatHistoryRepository chatHistoryRepository,
+                          ReferencePaperService referencePaperService) {
         this.ollamaService = ollamaService;
         this.chatHistoryRepository = chatHistoryRepository;
+        this.referencePaperService = referencePaperService;
     }
 
     @GetMapping("/test")
@@ -133,6 +143,36 @@ public class ChatController {
             keyword = buildSimpleKeyword(userMessage);
         }
 
+        if (referencePaperService.isReferenceRequest(userMessage)) {
+            int count = referencePaperService.extractRequestedCount(userMessage);
+            String responseText = referencePaperService.formatAsMarkdown(
+                    "Reference papers for: " + userMessage,
+                    referencePaperService.search(userMessage, 2021, 2025, count),
+                    2021,
+                    2025
+            );
+
+            saveChatHistoryAsync(
+                    authenticatedUserId,
+                    conversationId,
+                    userMessage,
+                    responseText,
+                    imageData,
+                    fileData,
+                    fileName,
+                    fileType,
+                    fileSize,
+                    keyword
+            );
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("response", responseText);
+            response.put("conversationId", conversationId);
+            response.put("status", "success");
+            response.put("timestamp", LocalDateTime.now());
+            return response;
+        }
+
         // Get AI response with file content support
         String aiResponse = ollamaService.chat(model, userMessage, imageData, fileContent);
 
@@ -156,6 +196,139 @@ public class ChatController {
         response.put("status", "success");
         response.put("timestamp", LocalDateTime.now());
         return response;
+    }
+
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> chatStream(@RequestBody Map<String, Object> request,
+                                                    HttpServletRequest httpServletRequest) {
+        String authenticatedUserId = getAuthenticatedUserId(httpServletRequest);
+        if (authenticatedUserId == null || authenticatedUserId.isBlank()) {
+            return Flux.just(ServerSentEvent.builder("Unauthorized").event("error").build());
+        }
+
+        String userMessage = (String) request.get("message");
+        String model = (String) request.get("model");
+        String conversationId = (String) request.get("conversationId");
+        String requestUserId = (String) request.get("userId");
+        String imageData = (String) request.get("imageData");
+        String fileData = (String) request.get("file");
+        String fileName = (String) request.get("fileName");
+        String fileType = (String) request.get("fileType");
+        Long fileSize = toLong(request.get("fileSize"));
+        String keyword = (String) request.get("keyword");
+
+        if (requestUserId != null && !requestUserId.isBlank() && !requestUserId.equals(authenticatedUserId)) {
+            System.out.println("Ignoring mismatched request userId: " + requestUserId);
+        }
+
+        if (model == null || model.isBlank()) {
+            model = "qwen2.5:1.5b";
+        }
+
+        if (conversationId == null || conversationId.isBlank()) {
+            conversationId = UUID.randomUUID().toString();
+        }
+
+        String fileContent = null;
+        if (fileData != null && !fileData.isEmpty()) {
+            fileContent = ollamaService.extractFileContent(fileData);
+            System.out.println("File '" + fileName + "' extracted. Content length: " +
+                    (fileContent != null ? fileContent.length() : "0"));
+        }
+
+        if (userMessage == null || userMessage.trim().isEmpty()) {
+            if (imageData != null && !imageData.isEmpty()) {
+                userMessage = "Analyze this image and describe it in detail.";
+            } else if (fileContent != null && !fileContent.isEmpty()) {
+                userMessage = "Please analyze this document.";
+            } else if (fileData != null && !fileData.isEmpty()) {
+                String safeFileName = fileName != null && !fileName.isBlank() ? fileName : "attachment";
+                userMessage = "I uploaded a file named \"" + safeFileName + "\". Please help me with it.";
+            } else {
+                return Flux.just(ServerSentEvent.builder("Message is required").event("error").build());
+            }
+        }
+
+        if (keyword == null || keyword.trim().isEmpty()) {
+            keyword = buildSimpleKeyword(userMessage);
+        }
+
+        if (referencePaperService.isReferenceRequest(userMessage)) {
+            int count = referencePaperService.extractRequestedCount(userMessage);
+            String responseText = referencePaperService.formatAsMarkdown(
+                    "Reference papers for: " + userMessage,
+                    referencePaperService.search(userMessage, 2021, 2025, count),
+                    2021,
+                    2025
+            );
+
+            String finalConversationId = conversationId;
+            String finalUserMessage = userMessage;
+            String finalKeyword = keyword;
+            String finalImageData = imageData;
+            String finalFileData = fileData;
+            String finalFileName = fileName;
+            String finalFileType = fileType;
+            Long finalFileSize = fileSize;
+
+            StringBuilder fullResponse = new StringBuilder(responseText);
+            Flux<ServerSentEvent<String>> meta = Flux.just(ServerSentEvent.<String>builder(toJson(Map.of(
+                            "conversationId", finalConversationId,
+                            "status", "success")))
+                    .event("meta")
+                    .build());
+
+            Flux<ServerSentEvent<String>> tokens = Flux.fromArray(responseText.split("(?<=\\n)"))
+                    .map(token -> ServerSentEvent.builder(token).event("token").build());
+
+            return Flux.concat(meta, tokens)
+                    .doOnComplete(() -> saveChatHistoryAsync(
+                            authenticatedUserId,
+                            finalConversationId,
+                            finalUserMessage,
+                            fullResponse.toString(),
+                            finalImageData,
+                            finalFileData,
+                            finalFileName,
+                            finalFileType,
+                            finalFileSize,
+                            finalKeyword
+                    ));
+        }
+
+        String finalConversationId = conversationId;
+        String finalUserMessage = userMessage;
+        String finalKeyword = keyword;
+        String finalModel = model;
+        String finalFileContent = fileContent;
+
+        StringBuilder fullResponse = new StringBuilder();
+
+        Flux<ServerSentEvent<String>> meta = Flux.just(ServerSentEvent.<String>builder(toJson(Map.of(
+                        "conversationId", finalConversationId,
+                        "status", "success")))
+                .event("meta")
+                .build());
+
+        Flux<ServerSentEvent<String>> tokens = ollamaService
+                .chatStream(finalModel, finalUserMessage, imageData, finalFileContent)
+                .doOnNext(fullResponse::append)
+                .map(token -> ServerSentEvent.builder(token).event("token").build())
+                .onErrorResume(err -> Flux.just(ServerSentEvent.builder("Error: " + err.getMessage()).event("error").build()));
+
+        return Flux.concat(meta, tokens)
+                .doOnComplete(() -> saveChatHistoryAsync(
+                        authenticatedUserId,
+                        finalConversationId,
+                        finalUserMessage,
+                        fullResponse.toString(),
+                        imageData,
+                        fileData,
+                        fileName,
+                        fileType,
+                        fileSize,
+                        finalKeyword
+                ));
     }
 
     /**
@@ -296,5 +469,13 @@ public class ChatController {
             }
         }
         return null;
+    }
+
+    private String toJson(Map<String, Object> value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return "{}";
+        }
     }
 }

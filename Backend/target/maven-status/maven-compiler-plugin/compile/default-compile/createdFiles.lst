@@ -5,10 +5,15 @@ com\localai\BackendApplication$1.class
 com\localai\service\OllamaService.class
 com\localai\BackendApplication.class
 com\localai\model\User.class
+com\localai\service\ReferencePaperService$1.class
+com\localai\service\ReferencePaperService$ReferencePaper.class
+com\localai\service\ReferencePaperService$QueryIntent.class
 com\localai\controller\AuthController.class
 com\localai\model\ChatHistory.class
 com\localai\repository\ChatHistoryRepository.class
+com\localai\service\ReferencePaperService$ScoredPaper.class
 com\localai\security\JwtAuthenticationFilter.class
 com\localai\security\JwtUtil.class
 com\localai\config\SecurityConfig.class
+com\localai\service\ReferencePaperService.class
 com\localai\BackendApplication$InnerController.class

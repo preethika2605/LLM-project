@@ -9,6 +9,13 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.MediaType;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -18,12 +25,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import reactor.core.publisher.Flux;
 
 @Service
 public class OllamaService {
 
     private final String OLLAMA_URL = "http://127.0.0.1:11434/api/generate";
     private final String OLLAMA_TAGS_URL = "http://127.0.0.1:11434/api/tags";
+    private final WebClient webClient = WebClient.builder().baseUrl("http://127.0.0.1:11434").build();
+    private final ObjectMapper objectMapper = new ObjectMapper();
     
     // Vision models that support image analysis
     private final List<String> VISION_MODELS = Arrays.asList(
@@ -92,6 +102,48 @@ public class OllamaService {
             e.printStackTrace();
             return "Error communicating with Ollama: " + e.getMessage();
         }
+    }
+
+    /**
+     * Stream chat responses from Ollama.
+     */
+    public Flux<String> chatStream(String model, String prompt, String imageData, String fileContent) {
+        if (model == null || model.isEmpty()) {
+            model = "qwen2.5:1.5b";
+        }
+
+        String enhancedPrompt = buildEnhancedPrompt(prompt, fileContent);
+        String systemPrompt = generateCRTSystemPrompt(model, prompt, fileContent);
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", model);
+        body.put("system", systemPrompt);
+        body.put("prompt", enhancedPrompt);
+        body.put("stream", true);
+
+        if (imageData != null && !imageData.isEmpty()) {
+            String visionModel = resolveVisionModel(model);
+            if (visionModel == null) {
+                return Flux.just("Image Analysis Not Available: No vision models (like 'llava') are installed on your Ollama instance. Please install a vision model and try again.");
+            }
+            body.put("model", visionModel);
+
+            String base64Image = imageData.contains(",")
+                    ? imageData.substring(imageData.indexOf(",") + 1)
+                    : imageData;
+            body.put("images", Arrays.asList(base64Image));
+        }
+
+        return webClient.post()
+                .uri("/api/generate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToFlux(DataBuffer.class)
+                .transform(this::toLineFlux)
+                .flatMap(this::extractTokenFromJsonLine)
+                .onErrorResume(err -> Flux.just("Error communicating with Ollama: " + err.getMessage()));
     }
 
     /**
@@ -200,7 +252,8 @@ public class OllamaService {
              lowerPrompt.contains("without explanation") || lowerPrompt.contains("no explanation"))) {
             return "You are an expert programmer. Generate ONLY the code requested. " +
                    "DO NOT include any comments, explanations, or markdown formatting. " +
-                   "Return ONLY the raw code with NO comments whatsoever.";
+                   "Return ONLY the raw code with NO comments whatsoever. " +
+                   "Preserve exact whitespace and newlines; never merge tokens or remove spaces between keywords.";
         }
 
         // Check if request is for output/examples/results
@@ -216,7 +269,10 @@ public class OllamaService {
         if (lowerPrompt.contains("code") || lowerPrompt.contains("script") || lowerPrompt.contains("function") ||
             lowerPrompt.contains("class") || lowerPrompt.contains("algorithm")) {
             return "You are an expert programmer. Provide well-commented, clean code. " +
-                   "Include helpful comments explaining the logic. Use best practices.";
+                   "Include helpful comments explaining the logic. Use best practices. " +
+                   "Format code in a fenced code block with the correct language tag when known. " +
+                   "Preserve exact whitespace and newlines; never merge tokens or remove spaces between keywords. " +
+                   "If the code is in Go, the first line must be exactly: 'package main'.";
         }
 
         // Check if request is for explanations or tutorials
@@ -399,6 +455,60 @@ public class OllamaService {
             System.err.println("Error checking for vision models: " + e.getMessage());
         }
         return null;
+    }
+
+    private String resolveVisionModel(String model) {
+        boolean isVisionModel = VISION_MODELS.stream().anyMatch(model::contains);
+        if (isVisionModel) {
+            return model;
+        }
+        return findAvailableVisionModel();
+    }
+
+    private Flux<String> toLineFlux(Flux<DataBuffer> dataBuffers) {
+        return Flux.create(sink -> {
+            StringBuilder buffer = new StringBuilder();
+            dataBuffers.subscribe(
+                    dataBuffer -> {
+                        String chunk = StandardCharsets.UTF_8.decode(dataBuffer.asByteBuffer()).toString();
+                        DataBufferUtils.release(dataBuffer);
+                        buffer.append(chunk);
+                        int index;
+                        while ((index = buffer.indexOf("\n")) >= 0) {
+                            String line = buffer.substring(0, index);
+                            buffer.delete(0, index + 1);
+                            sink.next(line);
+                        }
+                    },
+                    sink::error,
+                    () -> {
+                        if (buffer.length() > 0) {
+                            sink.next(buffer.toString());
+                        }
+                        sink.complete();
+                    }
+            );
+        });
+    }
+
+    private Flux<String> extractTokenFromJsonLine(String line) {
+        if (line == null) {
+            return Flux.empty();
+        }
+        String trimmed = line.trim();
+        if (trimmed.isEmpty()) {
+            return Flux.empty();
+        }
+        try {
+            JsonNode node = objectMapper.readTree(trimmed);
+            JsonNode responseNode = node.get("response");
+            if (responseNode != null && !responseNode.isNull()) {
+                return Flux.just(responseNode.asText());
+            }
+        } catch (Exception ignored) {
+            // ignore malformed partial lines
+        }
+        return Flux.empty();
     }
 
     // Legacy method for backward compatibility
