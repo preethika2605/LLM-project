@@ -46,7 +46,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
-  const [selectedModel, setSelectedModel] = useState("llama3.2:1b");
+  const [selectedModel, setSelectedModel] = useState("qwen2.5:1.5b");
   const [currentChatId, setCurrentChatId] = useState(null);
   const [chatHistories, setChatHistories] = useState([]);
 

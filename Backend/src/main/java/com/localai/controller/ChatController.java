@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -143,14 +144,44 @@ public class ChatController {
             keyword = buildSimpleKeyword(userMessage);
         }
 
-        if (referencePaperService.isReferenceRequest(userMessage)) {
+        ReferenceResolution referenceResolution = resolveReferenceQuery(userMessage, conversationId, authenticatedUserId);
+        if (referenceResolution != null) {
+            if (referenceResolution.needsContext()) {
+                String responseText = "Please specify the topic for the reference papers (for example: \"multimodal local LLM system\").";
+                saveChatHistoryAsync(
+                        authenticatedUserId,
+                        conversationId,
+                        userMessage,
+                        responseText,
+                        imageData,
+                        fileData,
+                        fileName,
+                        fileType,
+                        fileSize,
+                        keyword
+                );
+
+                Map<String, Object> response = new HashMap<>();
+                response.put("response", responseText);
+                response.put("conversationId", conversationId);
+                response.put("status", "success");
+                response.put("timestamp", LocalDateTime.now());
+                return response;
+            }
+
             int count = referencePaperService.extractRequestedCount(userMessage);
+            String referenceQuery = referenceResolution.query();
+            Set<String> excludeTitles = referenceResolution.excludeTitles();
             String responseText = referencePaperService.formatAsMarkdown(
-                    "Reference papers for: " + userMessage,
-                    referencePaperService.search(userMessage, 2021, 2025, count),
+                    "Reference papers for: " + referenceQuery,
+                    referencePaperService.search(referenceQuery, 2021, 2025, count, excludeTitles),
                     2021,
                     2025
             );
+
+            String resolvedKeyword = referenceResolution.isFollowUp()
+                    ? buildSimpleKeyword(referenceQuery)
+                    : keyword;
 
             saveChatHistoryAsync(
                     authenticatedUserId,
@@ -162,7 +193,7 @@ public class ChatController {
                     fileName,
                     fileType,
                     fileSize,
-                    keyword
+                    resolvedKeyword
             );
 
             Map<String, Object> response = new HashMap<>();
@@ -253,18 +284,49 @@ public class ChatController {
             keyword = buildSimpleKeyword(userMessage);
         }
 
-        if (referencePaperService.isReferenceRequest(userMessage)) {
+        ReferenceResolution referenceResolution = resolveReferenceQuery(userMessage, conversationId, authenticatedUserId);
+        if (referenceResolution != null) {
+            if (referenceResolution.needsContext()) {
+                String responseText = "Please specify the topic for the reference papers (for example: \"multimodal local LLM system\").";
+                Flux<ServerSentEvent<String>> meta = Flux.just(ServerSentEvent.<String>builder(toJson(Map.of(
+                                "conversationId", conversationId,
+                                "status", "success")))
+                        .event("meta")
+                        .build());
+                Flux<ServerSentEvent<String>> tokens = Flux.just(
+                        ServerSentEvent.builder(responseText).event("token").build()
+                );
+
+                return Flux.concat(meta, tokens)
+                        .doOnComplete(() -> saveChatHistoryAsync(
+                                authenticatedUserId,
+                                conversationId,
+                                userMessage,
+                                responseText,
+                                imageData,
+                                fileData,
+                                fileName,
+                                fileType,
+                                fileSize,
+                                keyword
+                        ));
+            }
+
             int count = referencePaperService.extractRequestedCount(userMessage);
+            String referenceQuery = referenceResolution.query();
+            Set<String> excludeTitles = referenceResolution.excludeTitles();
             String responseText = referencePaperService.formatAsMarkdown(
-                    "Reference papers for: " + userMessage,
-                    referencePaperService.search(userMessage, 2021, 2025, count),
+                    "Reference papers for: " + referenceQuery,
+                    referencePaperService.search(referenceQuery, 2021, 2025, count, excludeTitles),
                     2021,
                     2025
             );
 
             String finalConversationId = conversationId;
             String finalUserMessage = userMessage;
-            String finalKeyword = keyword;
+            String finalKeyword = referenceResolution.isFollowUp()
+                    ? buildSimpleKeyword(referenceQuery)
+                    : keyword;
             String finalImageData = imageData;
             String finalFileData = fileData;
             String finalFileName = fileName;
@@ -478,4 +540,53 @@ public class ChatController {
             return "{}";
         }
     }
+
+    private ReferenceResolution resolveReferenceQuery(String userMessage, String conversationId, String userId) {
+        if (referencePaperService.isReferenceRequest(userMessage)) {
+            return new ReferenceResolution(userMessage, Set.of(), false, false);
+        }
+        if (!referencePaperService.isReferenceFollowUpRequest(userMessage)) {
+            return null;
+        }
+
+        ReferenceContext context = findReferenceContext(conversationId, userId);
+        if (context == null || context.query() == null || context.query().isBlank()) {
+            return new ReferenceResolution(null, Set.of(), true, true);
+        }
+        return new ReferenceResolution(context.query(), context.excludeTitles(), true, false);
+    }
+
+    private ReferenceContext findReferenceContext(String conversationId, String userId) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return null;
+        }
+        List<ChatHistory> history = chatHistoryRepository.findByConversationIdOrderByTimestampAsc(conversationId);
+        if (history == null || history.isEmpty()) {
+            return null;
+        }
+
+        String lastReferenceQuery = null;
+        Set<String> excludeTitles = new HashSet<>();
+        for (ChatHistory item : history) {
+            if (item == null || item.getUserMessage() == null) {
+                continue;
+            }
+            if (userId != null && item.getUserId() != null && !item.getUserId().equals(userId)) {
+                continue;
+            }
+            if (referencePaperService.isReferenceRequest(item.getUserMessage()) &&
+                    referencePaperService.isReferenceResponse(item.getAiResponse())) {
+                lastReferenceQuery = item.getUserMessage();
+                excludeTitles.addAll(referencePaperService.extractTitlesFromResponse(item.getAiResponse()));
+            }
+        }
+
+        if (lastReferenceQuery == null) {
+            return null;
+        }
+        return new ReferenceContext(lastReferenceQuery, excludeTitles);
+    }
+
+    private record ReferenceResolution(String query, Set<String> excludeTitles, boolean isFollowUp, boolean needsContext) {}
+    private record ReferenceContext(String query, Set<String> excludeTitles) {}
 }

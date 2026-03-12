@@ -302,10 +302,8 @@ const parseSseEvents = (buffer) => {
       if (line.startsWith("event:")) {
         eventName = line.slice(6).trim() || "message";
       } else if (line.startsWith("data:")) {
-        let value = line.slice(5);
-        if (value.startsWith(" ")) {
-          value = value.slice(1);
-        }
+        // Preserve exact token spacing; leading spaces can be meaningful.
+        const value = line.slice(5);
         dataLines.push(value);
       }
     }

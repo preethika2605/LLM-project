@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 @Service
 public class ReferencePaperService {
@@ -25,6 +26,7 @@ public class ReferencePaperService {
             "give", "provide", "list", "latest", "recent", "please", "need",
             "for", "on", "of", "in", "to", "and", "or", "the", "a", "an"
     );
+    private static final Pattern LIST_ITEM_PATTERN = Pattern.compile("^\\s*\\d+\\s*\\.\\s*");
 
     public ReferencePaperService(ObjectMapper objectMapper) {
         this.papers = loadPapers(objectMapper);
@@ -64,19 +66,36 @@ public class ReferencePaperService {
     }
 
     public List<ReferencePaper> search(String query, int yearFrom, int yearTo, int limit) {
+        return search(query, yearFrom, yearTo, limit, Set.of());
+    }
+
+    public List<ReferencePaper> search(String query, int yearFrom, int yearTo, int limit, Set<String> excludeTitles) {
         if (papers.isEmpty()) {
             return List.of();
         }
 
         QueryIntent intent = parseIntent(query);
         Set<String> keywords = tokenize(query);
+        Set<String> normalizedExclude = normalizeTitleSet(excludeTitles);
         List<ScoredPaper> scored = new ArrayList<>();
         for (ReferencePaper paper : papers) {
             if (paper.year < yearFrom || paper.year > yearTo) {
                 continue;
             }
+            if (intent.wantsMultimodal() && !isMultimodalPaper(paper)) {
+                continue;
+            }
+            if (intent.wantsLLM() && !isLLMPaper(paper)) {
+                continue;
+            }
             if (intent.hasExplicitDomain() && !intent.wantsMultimodal() && isMultimodalPaper(paper)) {
                 continue;
+            }
+            if (!normalizedExclude.isEmpty()) {
+                String normalizedTitle = normalizeTitle(paper.title);
+                if (!normalizedTitle.isEmpty() && normalizedExclude.contains(normalizedTitle)) {
+                    continue;
+                }
             }
             int score = scorePaper(paper, keywords);
             if (!keywords.isEmpty() && score <= 0) {
@@ -94,6 +113,68 @@ public class ReferencePaperService {
                 .map(scoredPaper -> scoredPaper.paper)
                 .limit(limit)
                 .collect(Collectors.toList());
+    }
+
+    public boolean isReferenceFollowUpRequest(String prompt) {
+        if (prompt == null || prompt.isBlank()) {
+            return false;
+        }
+        String lower = prompt.toLowerCase(Locale.ROOT);
+        if (isReferenceRequest(lower)) {
+            return false;
+        }
+
+        boolean mentionsReference = lower.contains("paper") ||
+                lower.contains("papers") ||
+                lower.contains("reference") ||
+                lower.contains("references") ||
+                lower.contains("citation") ||
+                lower.contains("cite");
+        if (mentionsReference) {
+            return true;
+        }
+
+        String[] tokens = lower.trim().split("\\s+");
+        if (tokens.length <= 4) {
+            return lower.contains("more") || lower.contains("another") || lower.contains("next");
+        }
+        return false;
+    }
+
+    public boolean isReferenceResponse(String response) {
+        if (response == null || response.isBlank()) {
+            return false;
+        }
+        String lower = response.toLowerCase(Locale.ROOT);
+        return lower.contains("reference papers for:");
+    }
+
+    public Set<String> extractTitlesFromResponse(String response) {
+        if (response == null || response.isBlank()) {
+            return Set.of();
+        }
+        String[] lines = response.split("\\r?\\n");
+        Set<String> titles = new HashSet<>();
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (!LIST_ITEM_PATTERN.matcher(line).find()) {
+                continue;
+            }
+            for (int j = i + 1; j < lines.length; j++) {
+                String candidate = lines[j].trim();
+                if (candidate.isEmpty()) {
+                    continue;
+                }
+                String lower = candidate.toLowerCase(Locale.ROOT);
+                if (lower.startsWith("summary:") || lower.startsWith("url:")) {
+                    continue;
+                }
+                titles.add(normalizeTitle(candidate));
+                break;
+            }
+        }
+        return titles;
     }
 
     public String formatAsMarkdown(String title, List<ReferencePaper> results, int yearFrom, int yearTo) {
@@ -171,6 +252,35 @@ public class ReferencePaperService {
         return text.toLowerCase(Locale.ROOT).contains(token.toLowerCase(Locale.ROOT));
     }
 
+    private Set<String> normalizeTitleSet(Set<String> titles) {
+        if (titles == null || titles.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> normalized = new HashSet<>();
+        for (String title : titles) {
+            String cleaned = normalizeTitle(title);
+            if (!cleaned.isEmpty()) {
+                normalized.add(cleaned);
+            }
+        }
+        return normalized;
+    }
+
+    private String normalizeTitle(String title) {
+        if (title == null || title.isBlank()) {
+            return "";
+        }
+        String cleaned = title.trim()
+                .replaceAll("^\"|\"$", "")
+                .replaceAll("^[']|[']$", "")
+                .replaceAll("[`]", "")
+                .replaceAll("\\s+", " ")
+                .replaceAll("\\.$", "")
+                .trim()
+                .toLowerCase(Locale.ROOT);
+        return cleaned;
+    }
+
     private Set<String> tokenize(String text) {
         if (text == null || text.isBlank()) {
             return Set.of();
@@ -245,6 +355,56 @@ public class ReferencePaperService {
                     lower.contains("image-text") ||
                     lower.contains("vlm");
         });
+    }
+
+    private boolean isLLMPaper(ReferencePaper paper) {
+        if (paper == null) {
+            return false;
+        }
+        if (paper.keywords != null && paper.keywords.stream().anyMatch(this::isLLMKeyword)) {
+            return true;
+        }
+        return containsAnyIgnoreCase(paper.title, LLM_KEYWORDS) ||
+                containsAnyIgnoreCase(paper.summary, LLM_KEYWORDS) ||
+                containsAnyIgnoreCase(paper.venue, LLM_KEYWORDS);
+    }
+
+    private static final List<String> LLM_KEYWORDS = List.of(
+            "llm",
+            "large language model",
+            "language model",
+            "gpt",
+            "chatgpt",
+            "instruction-tuned",
+            "instruction tuned",
+            "decoder-only",
+            "decoder only"
+    );
+
+    private boolean isLLMKeyword(String keyword) {
+        if (keyword == null || keyword.isBlank()) {
+            return false;
+        }
+        String lower = keyword.toLowerCase(Locale.ROOT);
+        for (String token : LLM_KEYWORDS) {
+            if (lower.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsAnyIgnoreCase(String text, List<String> tokens) {
+        if (text == null || text.isBlank() || tokens == null || tokens.isEmpty()) {
+            return false;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        for (String token : tokens) {
+            if (token != null && !token.isBlank() && lower.contains(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static class ReferencePaper {

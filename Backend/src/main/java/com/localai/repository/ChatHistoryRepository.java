@@ -6,4 +6,5 @@ import java.util.List;
 
 public interface ChatHistoryRepository extends MongoRepository<ChatHistory, String> {
     List<ChatHistory> findByUserId(String userId);
+    List<ChatHistory> findByConversationIdOrderByTimestampAsc(String conversationId);
 }

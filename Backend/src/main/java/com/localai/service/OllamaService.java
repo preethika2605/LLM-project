@@ -69,23 +69,30 @@ public class OllamaService {
             model = "qwen2.5:1.5b";
         }
 
+        boolean hasImageData = imageData != null && !imageData.isEmpty();
+        boolean hasFileContent = fileContent != null && !fileContent.trim().isEmpty();
+
         // Build enhanced prompt with file content
         String enhancedPrompt = buildEnhancedPrompt(prompt, fileContent);
 
         // Check if image data is provided
-        if (imageData != null && !imageData.isEmpty()) {
+        if (hasImageData) {
             System.out.println("Image data detected - attempting image processing...");
             return chatWithImage(model, enhancedPrompt, imageData);
         }
 
         // Generate CRT-focused system prompt for concise responses
-        String systemPrompt = generateCRTSystemPrompt(model, prompt, fileContent);
+        String systemPrompt = generateCRTSystemPrompt(model, prompt, fileContent, false);
 
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
         body.put("system", systemPrompt);
         body.put("prompt", enhancedPrompt);
         body.put("stream", false);
+        Map<String, Object> fastOptions = buildFastResponseOptions(prompt, hasFileContent, false);
+        if (fastOptions != null) {
+            body.put("options", fastOptions);
+        }
 
         try {
             @SuppressWarnings("unchecked")
@@ -112,16 +119,23 @@ public class OllamaService {
             model = "qwen2.5:1.5b";
         }
 
+        boolean hasImageData = imageData != null && !imageData.isEmpty();
+        boolean hasFileContent = fileContent != null && !fileContent.trim().isEmpty();
+
         String enhancedPrompt = buildEnhancedPrompt(prompt, fileContent);
-        String systemPrompt = generateCRTSystemPrompt(model, prompt, fileContent);
+        String systemPrompt = generateCRTSystemPrompt(model, prompt, fileContent, hasImageData);
 
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
         body.put("system", systemPrompt);
         body.put("prompt", enhancedPrompt);
         body.put("stream", true);
+        Map<String, Object> fastOptions = buildFastResponseOptions(prompt, hasFileContent, hasImageData);
+        if (fastOptions != null) {
+            body.put("options", fastOptions);
+        }
 
-        if (imageData != null && !imageData.isEmpty()) {
+        if (hasImageData) {
             String visionModel = resolveVisionModel(model);
             if (visionModel == null) {
                 return Flux.just("Image Analysis Not Available: No vision models (like 'llava') are installed on your Ollama instance. Please install a vision model and try again.");
@@ -169,39 +183,13 @@ public class OllamaService {
     /**
      * Generate an adaptive system prompt based on intent.
      */
-    private String generateCRTSystemPrompt(String model, String prompt, String fileContent) {
+    private String generateCRTSystemPrompt(String model, String prompt, String fileContent, boolean hasImageData) {
         String lowerPrompt = (prompt != null ? prompt : "").toLowerCase();
         boolean hasFileContent = fileContent != null && !fileContent.trim().isEmpty();
         boolean wantsReferencePapers = isReferencePaperRequest(lowerPrompt);
-        boolean wantsResearchPaper =
-                lowerPrompt.contains("research paper") ||
-                lowerPrompt.contains("journal") ||
-                lowerPrompt.contains("survey paper") ||
-                lowerPrompt.contains("literature review") ||
-                lowerPrompt.contains("thesis") ||
-                ((lowerPrompt.contains("paper") || lowerPrompt.contains("journal article")) &&
-                        (lowerPrompt.contains("write") ||
-                                lowerPrompt.contains("generate") ||
-                                lowerPrompt.contains("create") ||
-                                lowerPrompt.contains("draft") ||
-                                lowerPrompt.contains("prepare")));
-        boolean wantsDocument =
-                lowerPrompt.contains("generate document") ||
-                lowerPrompt.contains("create document") ||
-                lowerPrompt.contains("write document") ||
-                lowerPrompt.contains("document for") ||
-                lowerPrompt.contains("report") ||
-                lowerPrompt.contains("whitepaper") ||
-                lowerPrompt.contains("white paper") ||
-                lowerPrompt.contains("proposal");
-        boolean wantsDetailed =
-                lowerPrompt.contains("detailed") ||
-                lowerPrompt.contains("in detail") ||
-                lowerPrompt.contains("elaborate") ||
-                lowerPrompt.contains("comprehensive") ||
-                lowerPrompt.contains("step by step") ||
-                wantsResearchPaper ||
-                wantsDocument;
+        boolean wantsResearchPaper = isResearchPaperRequest(lowerPrompt);
+        boolean wantsDocument = isDocumentRequest(lowerPrompt);
+        boolean wantsDetailed = isExplicitlyDetailed(lowerPrompt) || wantsResearchPaper || wantsDocument;
 
         if (wantsReferencePapers) {
             int requestedCount = extractRequestedReferenceCount(prompt);
@@ -235,6 +223,15 @@ public class OllamaService {
                     "actionable conclusion. Prefer depth over brevity.";
         }
 
+        if (hasImageData && !hasFileContent) {
+            if (wantsDetailed) {
+                return "You are an expert visual analysis assistant. Provide detailed but focused observations. " +
+                        "Cover overall scene, key subjects, visible text/OCR, and notable details.";
+            }
+            return "You are a visual analysis assistant. Provide a short summary and 5 key observations. " +
+                    "Keep it concise (max 120 words).";
+        }
+
         // Check if this is a file analysis request
         if (hasFileContent) {
             if (wantsDetailed) {
@@ -242,8 +239,8 @@ public class OllamaService {
                         "Use clear sections, include important specifics, and explain step-by-step when useful. " +
                         "If the request asks for slide-by-slide or section-by-section explanation, follow that format exactly.";
             }
-            return "You are a document analysis expert. Provide clear and sufficiently detailed answers based on the " +
-                    "uploaded content. Use structured formatting and include key evidence from the document.";
+            return "You are a document analysis expert. Provide a concise summary of the uploaded content. " +
+                    "Use 5-7 bullet points and keep the response under 150 words unless the user asks for detail.";
         }
 
         // Check if request is for code without comments
@@ -385,11 +382,13 @@ public class OllamaService {
         String userPrompt = prompt != null && !prompt.isEmpty() ? 
             prompt : "Describe this image in detail. What do you see? Explain everything about the image.";
 
-        String visionPrompt = buildDetailedVisionPrompt(userPrompt);
-        String visionSystemPrompt = "You are an expert visual analysis assistant. " +
-            "Provide DETAILED but CONCISE visual observations. " +
-            "Cover: overall scene, key subjects, text/OCR (if visible), colors/lighting, " +
-            "actions, and notable details. Keep responses brief and focused.";
+        String visionPrompt = buildVisionPrompt(userPrompt);
+        boolean wantsDetailed = isExplicitlyDetailed(userPrompt.toLowerCase());
+        String visionSystemPrompt = wantsDetailed
+                ? "You are an expert visual analysis assistant. Provide detailed but focused visual observations. " +
+                  "Cover overall scene, key subjects, text/OCR (if visible), colors/lighting, and notable details."
+                : "You are a visual analysis assistant. Provide a short summary and 5 key observations. " +
+                  "Keep the response under 120 words.";
 
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
@@ -397,6 +396,10 @@ public class OllamaService {
         body.put("prompt", visionPrompt);
         body.put("images", Arrays.asList(base64Image));
         body.put("stream", false);
+        Map<String, Object> fastOptions = buildFastResponseOptions(userPrompt, false, true);
+        if (fastOptions != null) {
+            body.put("options", fastOptions);
+        }
 
         try {
             System.out.println("Sending image to Ollama with model: " + model);
@@ -516,15 +519,83 @@ public class OllamaService {
         return chat(model, prompt, null);
     }
 
-    private String buildDetailedVisionPrompt(String userPrompt) {
+    private String buildVisionPrompt(String userPrompt) {
         String normalizedPrompt = userPrompt == null ? "" : userPrompt.trim();
         if (normalizedPrompt.isEmpty()) {
             normalizedPrompt = "Describe this image in detail.";
         }
 
+        boolean wantsDetailed = isExplicitlyDetailed(normalizedPrompt.toLowerCase());
+        if (wantsDetailed) {
+            return normalizedPrompt + "\n\n" +
+                "Provide detailed visual analysis with concrete observations. " +
+                "Mention fine details that are easy to miss when relevant.";
+        }
+
         return normalizedPrompt + "\n\n" +
-            "Provide detailed visual analysis with concrete observations. " +
-            "Mention fine details that are easy to miss when relevant.";
+            "Provide a concise summary and key observations. " +
+            "Keep it short and focused.";
+    }
+
+    private boolean isExplicitlyDetailed(String lowerPrompt) {
+        if (lowerPrompt == null || lowerPrompt.isBlank()) {
+            return false;
+        }
+        return lowerPrompt.contains("detailed") ||
+                lowerPrompt.contains("in detail") ||
+                lowerPrompt.contains("elaborate") ||
+                lowerPrompt.contains("comprehensive") ||
+                lowerPrompt.contains("step by step");
+    }
+
+    private boolean isResearchPaperRequest(String lowerPrompt) {
+        if (lowerPrompt == null || lowerPrompt.isBlank()) {
+            return false;
+        }
+        return lowerPrompt.contains("research paper") ||
+                lowerPrompt.contains("journal") ||
+                lowerPrompt.contains("survey paper") ||
+                lowerPrompt.contains("literature review") ||
+                lowerPrompt.contains("thesis") ||
+                ((lowerPrompt.contains("paper") || lowerPrompt.contains("journal article")) &&
+                        (lowerPrompt.contains("write") ||
+                                lowerPrompt.contains("generate") ||
+                                lowerPrompt.contains("create") ||
+                                lowerPrompt.contains("draft") ||
+                                lowerPrompt.contains("prepare")));
+    }
+
+    private boolean isDocumentRequest(String lowerPrompt) {
+        if (lowerPrompt == null || lowerPrompt.isBlank()) {
+            return false;
+        }
+        return lowerPrompt.contains("generate document") ||
+                lowerPrompt.contains("create document") ||
+                lowerPrompt.contains("write document") ||
+                lowerPrompt.contains("document for") ||
+                lowerPrompt.contains("report") ||
+                lowerPrompt.contains("whitepaper") ||
+                lowerPrompt.contains("white paper") ||
+                lowerPrompt.contains("proposal");
+    }
+
+    private Map<String, Object> buildFastResponseOptions(String prompt, boolean hasFileContent, boolean hasImageData) {
+        if (!hasFileContent && !hasImageData) {
+            return null;
+        }
+        String lowerPrompt = prompt == null ? "" : prompt.toLowerCase();
+        boolean wantsDetailed = isExplicitlyDetailed(lowerPrompt) ||
+                isResearchPaperRequest(lowerPrompt) ||
+                isDocumentRequest(lowerPrompt);
+        if (wantsDetailed) {
+            return null;
+        }
+
+        Map<String, Object> options = new HashMap<>();
+        options.put("num_predict", 256);
+        options.put("temperature", 0.2);
+        options.put("top_p", 0.9);
+        return options;
     }
 
     /**
